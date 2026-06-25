@@ -3,7 +3,7 @@ import logger from './logger';
 
 // Read the runtime config from the browser so container environment values are available after startup.
 const runtimeConfig = window.__APP_CONFIG__ || {};
-const API_BASE = runtimeConfig.apiTarget || 'http://localhost:3100';
+const API_BASE = runtimeConfig.apiTarget || import.meta.env.VITE_API_TARGET || 'http://localhost:3100';
 
 console.info('[FRONTEND-STARTUP]', 'Resolved frontend config', {
   apiTarget: API_BASE,
