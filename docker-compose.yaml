@@ -1,0 +1,35 @@
+---
+services:
+  s3-app-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: s3-app-frontend
+    restart: unless-stopped
+    networks: 
+      - s3-app
+    ports:
+      - "3300:3300"
+    environment:
+      - VITE_UI_PORT=3300
+      - VITE_API_TARGET=http://localhost:3100
+    # depends_on:
+    #   - backend
+
+  s3-app-backend:
+    #image: s3-app-backend:latest
+    build:
+      context: ../s3-app-backend
+      dockerfile: Dockerfile
+    container_name: s3-app-backend
+    restart: unless-stopped
+    networks:
+      - s3-app
+    ports:
+      - "3100:3100"
+    env_file:
+      - ../s3-app-backend/.env
+
+networks:
+  s3-app:
+    driver: bridge
