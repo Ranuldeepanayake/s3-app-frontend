@@ -11,8 +11,9 @@ services:
     ports:
       - "3300:3300"
     environment:
-      - VITE_UI_PORT=3300
-      - VITE_API_TARGET=http://192.168.56.128:3100
+      VITE_UI_PORT: 3300
+      VITE_API_TARGET: http://192.168.56.128:3100
+      VITE_MAX_IMAGE_SIZE_BYTES: 5242880
     # depends_on:
     #   - backend
 

@@ -18,4 +18,4 @@ RUN chmod +x /docker-entrypoint.sh
 
 EXPOSE 3300
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["serve", "-s", "/app/dist", "-l", "3300"]
+CMD ["sh", "-c", "serve -s /app/dist -l ${VITE_UI_PORT:-3300}"]

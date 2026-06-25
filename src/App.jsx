@@ -4,7 +4,9 @@ import logger from './logger';
 // Read the runtime config from the browser so container environment values are available after startup.
 const runtimeConfig = window.__APP_CONFIG__ || {};
 const API_BASE = runtimeConfig.apiTarget || import.meta.env.VITE_API_TARGET || 'http://localhost:3100';
+const MAX_IMAGE_SIZE_BYTES = Number(runtimeConfig.maxImageSizeBytes || import.meta.env.VITE_MAX_IMAGE_SIZE_BYTES || 5 * 1024 * 1024);
 
+// Log the resolved frontend config for debugging purposes.
 console.info('[FRONTEND-STARTUP]', 'Resolved frontend config', {
   apiTarget: API_BASE,
   mode: import.meta.env.MODE,
@@ -16,25 +18,20 @@ console.info('[FRONTEND-STARTUP]', 'Resolved frontend config', {
   runtimeConfig
 });
 
-const parseJsonResponse = async (response) => {
-  const contentType = response.headers.get('content-type') || '';
-  const text = await response.text();
-
-  if (!text) {
-    return null;
+// Utility function to format file sizes in a human-readable way.
+const formatFileSize = (sizeInBytes) => {
+  if (!Number.isFinite(sizeInBytes) || sizeInBytes <= 0) {
+    return '0 KB';
   }
 
-  if (contentType.includes('application/json')) {
-    try {
-      return JSON.parse(text);
-    } catch (error) {
-      throw new Error(`Invalid JSON response: ${text}`);
-    }
+  if (sizeInBytes >= 1024 * 1024) {
+    return `${Math.ceil(sizeInBytes / (1024 * 1024))} MB`;
   }
 
-  throw new Error(`Unexpected response from API: ${text}`);
+  return `${Math.ceil(sizeInBytes / 1024)} KB`;
 };
 
+// Main App component
 function App() {
   const [images, setImages] = useState([]);
   const [selectedImageId, setSelectedImageId] = useState('');
@@ -45,6 +42,10 @@ function App() {
   const [updateName, setUpdateName] = useState('');
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState([]);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [authToken, setAuthToken] = useState(localStorage.getItem('authToken') || '');
+  const [authStatus, setAuthStatus] = useState(authToken ? 'Authenticated' : 'Login required for bulk delete');
 
   // Keep a short activity log that mirrors the browser console with timestamps.
   const appendLog = (level, component, message) => {
@@ -61,7 +62,12 @@ function App() {
     const method = options.method || 'GET';
     appendLog('INFO', 'UI', `Request ${method} ${url}`);
 
-    const response = await fetch(url, options);
+    const headers = new Headers(options.headers || {});
+    if (authToken && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${authToken}`);
+    }
+
+    const response = await fetch(url, { ...options, headers });
     const contentType = response.headers.get('content-type') || '';
     const bodyText = await response.text();
 
@@ -137,6 +143,11 @@ function App() {
       return;
     }
 
+    if (uploadFile.size > MAX_IMAGE_SIZE_BYTES) {
+      appendLog('WARN', 'UI', `Image is too large. Maximum allowed size is ${formatFileSize(MAX_IMAGE_SIZE_BYTES)}.`);
+      return;
+    }
+
     try {
       const formData = new FormData();
       formData.append('image', uploadFile);
@@ -164,6 +175,11 @@ function App() {
     event.preventDefault();
     if (!selectedImage) {
       appendLog('WARN', 'UI', 'Select an image before updating');
+      return;
+    }
+
+    if (updateFile && updateFile.size > MAX_IMAGE_SIZE_BYTES) {
+      appendLog('WARN', 'UI', `Image is too large. Maximum allowed size is ${formatFileSize(MAX_IMAGE_SIZE_BYTES)}.`);
       return;
     }
 
@@ -197,11 +213,58 @@ function App() {
     }
 
     try {
-      const data = await requestJson(`${API_BASE}/api/images/${selectedImage.imageId || selectedImage._id}`, {
+      await requestJson(`${API_BASE}/api/images/${selectedImage.imageId || selectedImage._id}`, {
         method: 'DELETE'
       });
 
       appendLog('INFO', 'UI', `Deleted ${selectedImage.name}`);
+      await refreshImages();
+      setSelectedImage(null);
+    } catch (error) {
+      appendLog('ERROR', 'UI', error.message);
+    }
+  };
+
+  const handleLogin = async (event) => {
+    event.preventDefault();
+
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, password })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || 'Login failed');
+      }
+
+      setAuthToken(data.token);
+      localStorage.setItem('authToken', data.token);
+      setAuthStatus('Authenticated');
+      appendLog('INFO', 'UI', 'Logged in successfully');
+      setPassword('');
+    } catch (error) {
+      setAuthStatus('Login failed');
+      appendLog('ERROR', 'UI', error.message);
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    if (!authToken) {
+      appendLog('WARN', 'UI', 'Please log in before deleting all images');
+      return;
+    }
+
+    try {
+      const result = await requestJson(`${API_BASE}/api/images/delete-all`, {
+        method: 'DELETE'
+      });
+
+      appendLog('INFO', 'UI', result?.message || 'Deleted all images');
       await refreshImages();
       setSelectedImage(null);
     } catch (error) {
@@ -241,7 +304,7 @@ function App() {
             <>
               <p><strong>Name:</strong> {selectedImage.name}</p>
               <p><strong>ID:</strong> {selectedImage.imageId || selectedImage._id}</p>
-              <p><strong>Size:</strong> {selectedImage.size} bytes</p>
+              <p><strong>Size:</strong> {formatFileSize(selectedImage.size)}</p>
               <img src={selectedImage.url} alt={selectedImage.name} />
               <div className="actions">
                 <button type="button" onClick={handleDelete}>Delete image</button>
@@ -254,6 +317,18 @@ function App() {
       </main>
 
       <section className="panel forms-panel">
+        <div>
+          <h2>Protected actions</h2>
+          <form onSubmit={handleLogin} className="form-stack">
+            <input type="text" placeholder="Username" value={username} onChange={(event) => setUsername(event.target.value)} />
+            <input type="password" placeholder="Password" value={password} onChange={(event) => setPassword(event.target.value)} />
+            <button type="submit">Login</button>
+            <p className="helper-text">{authStatus}</p>
+          </form>
+          <button type="button" className="danger-button" onClick={handleDeleteAll}>Delete all images</button>
+          <p className="helper-text">Maximum upload size: {formatFileSize(MAX_IMAGE_SIZE_BYTES)}</p>
+        </div>
+
         <div>
           <h2>Upload a new image</h2>
           <form onSubmit={handleUpload} className="form-stack">
