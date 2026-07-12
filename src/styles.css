@@ -42,6 +42,11 @@ input {
   color: #172033;
 }
 
+a {
+  color: #1d4ed8;
+  overflow-wrap: anywhere;
+}
+
 label {
   display: flex;
   flex-direction: column;
@@ -228,6 +233,47 @@ img {
   border-radius: 8px;
 }
 
+.metadata-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin: 0 0 14px;
+}
+
+.metadata-list div {
+  min-width: 0;
+}
+
+.metadata-list dt {
+  margin-bottom: 3px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.metadata-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.metadata-list .metadata-wide {
+  grid-column: 1 / -1;
+}
+
+.image-placeholder {
+  display: flex;
+  align-items: center;
+  min-height: 160px;
+  margin: 12px 0;
+  padding: 16px;
+  border: 1px dashed #b8c2d6;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #53627a;
+  line-height: 1.45;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -322,6 +368,10 @@ img {
 
   .grid,
   .forms-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .metadata-list {
     grid-template-columns: 1fr;
   }
 }

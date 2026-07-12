@@ -66,6 +66,52 @@ const getMessageFromErrorBody = (bodyText, fallback) => {
   }
 };
 
+const getImageId = (image) => image?.imageId || image?._id || '';
+
+const getImageFileName = (image) => image?.fileName || image?.key || image?.name || 'Unnamed file';
+
+const getImageDisplayName = (image) => image?.name || getImageFileName(image);
+
+const getImageRenderUrl = (image) => image?.url || '';
+
+const formatDateTime = (value) => {
+  if (!value) {
+    return 'Not available';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Not available';
+  }
+
+  return date.toLocaleString();
+};
+
+const summarizeResponseBody = (data) => {
+  if (Array.isArray(data)) {
+    const names = data.map((image) => getImageFileName(image)).filter(Boolean);
+    return `Received ${data.length} image metadata record(s)${names.length ? `: ${names.join(', ')}` : ''}`;
+  }
+
+  if (data?.image) {
+    return `${data.message || 'Image response'} (${getImageFileName(data.image)})`;
+  }
+
+  if (data?.fileName || data?.key || data?.imageId || data?._id) {
+    return `Received image metadata for ${getImageFileName(data)}`;
+  }
+
+  if (data?.message) {
+    return data.message;
+  }
+
+  if (data?.status) {
+    return `Status: ${data.status}`;
+  }
+
+  return 'Received JSON response';
+};
+
 const AuthNotice = ({ token, children }) => {
   if (token) {
     return null;
@@ -143,9 +189,6 @@ function App() {
     const bodyText = await response.text();
 
     appendLog('INFO', 'UI', `Response ${method} ${url} -> ${response.status} ${contentType}`);
-    if (bodyText) {
-      appendLog('INFO', 'UI', `Body ${method} ${url} -> ${bodyText}`);
-    }
 
     if (!response.ok) {
       const message = getMessageFromErrorBody(bodyText, `Request failed with status ${response.status}`);
@@ -156,11 +199,13 @@ function App() {
       return null;
     }
 
-    if (contentType.includes('application/json')) {
-      return JSON.parse(bodyText);
+    if (!contentType.includes('application/json')) {
+      throw new Error(`Unexpected response format: ${bodyText}`);
     }
 
-    throw new Error(`Unexpected response format: ${bodyText}`);
+    const data = JSON.parse(bodyText);
+    appendLog('INFO', 'UI', summarizeResponseBody(data));
+    return data;
   };
 
   const refreshImages = async () => {
@@ -172,7 +217,7 @@ function App() {
       appendLog('INFO', 'UI', `Loaded ${imagesData.length} image(s)`);
 
       if (!selectedImageId && imagesData[0]) {
-        setSelectedImageId(imagesData[0].imageId || imagesData[0]._id);
+        setSelectedImageId(getImageId(imagesData[0]));
       }
     } catch (error) {
       appendLog('ERROR', 'UI', error.message);
@@ -186,7 +231,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const activeImage = images.find((image) => (image.imageId || image._id) === selectedImageId);
+    const activeImage = images.find((image) => getImageId(image) === selectedImageId);
     setSelectedImage(activeImage || null);
   }, [images, selectedImageId]);
 
@@ -194,7 +239,7 @@ function App() {
     if (!selectedImage) {
       return 'No image selected';
     }
-    return `${selectedImage.name} (${selectedImage.imageId || selectedImage._id})`;
+    return `${getImageDisplayName(selectedImage)} (${getImageId(selectedImage)})`;
   }, [selectedImage]);
 
   const handleSelectImage = async (imageId) => {
@@ -203,6 +248,7 @@ function App() {
       appendLog('INFO', 'UI', `Viewing image ${imageId}`);
       const data = await requestJson(`${API_BASE}/api/images/${imageId}`);
       setSelectedImage(data);
+      appendLog('INFO', 'UI', `Rendering ${getImageFileName(data)} from ${getImageRenderUrl(data) || 'no CloudFront URL configured'}`);
     } catch (error) {
       appendLog('ERROR', 'UI', error.message);
     }
@@ -232,12 +278,12 @@ function App() {
         body: formData
       });
 
-      appendLog('INFO', 'UI', `Uploaded ${data?.image?.name || uploadFile.name}`);
+      appendLog('INFO', 'UI', `Uploaded ${getImageFileName(data?.image) || uploadFile.name}`);
       setUploadFile(null);
       setUploadName('');
       event.target.reset();
       await refreshImages();
-      setSelectedImageId(data.image?.imageId || data.image?._id);
+      setSelectedImageId(getImageId(data.image));
     } catch (error) {
       appendLog('ERROR', 'UI', error.message);
     }
@@ -269,7 +315,7 @@ function App() {
         body: formData
       });
 
-      appendLog('INFO', 'UI', `Updated ${data?.image?.name || selectedImage.name}`);
+      appendLog('INFO', 'UI', `Updated ${getImageDisplayName(data?.image) || getImageDisplayName(selectedImage)}`);
       setUpdateFile(null);
       setUpdateName('');
       event.target.reset();
@@ -289,7 +335,7 @@ function App() {
         method: 'DELETE'
       });
 
-      appendLog('INFO', 'UI', `Deleted ${selectedImage.name}`);
+      appendLog('INFO', 'UI', `Deleted ${getImageFileName(selectedImage)}`);
       await refreshImages();
       setSelectedImage(null);
     } catch (error) {
@@ -385,12 +431,13 @@ function App() {
           {loading ? <p>Loading images...</p> : null}
           <ul className="image-list">
             {images.map((image) => {
-              const id = image.imageId || image._id;
+              const id = getImageId(image);
               return (
                 <li key={id}>
                   <button type="button" className={selectedImageId === id ? 'active' : ''} onClick={() => handleSelectImage(id)}>
-                    <strong>{image.name}</strong>
-                    <span>{new Date(image.uploadedAt).toLocaleString()}</span>
+                    <strong>{getImageDisplayName(image)}</strong>
+                    <span>{getImageFileName(image)}</span>
+                    <span>{formatDateTime(image.uploadedAt)}</span>
                   </button>
                 </li>
               );
@@ -403,10 +450,61 @@ function App() {
           <h2>Selected Image</h2>
           {selectedImage ? (
             <>
-              <p><strong>Name:</strong> {selectedImage.name}</p>
-              <p><strong>ID:</strong> {selectedImage.imageId || selectedImage._id}</p>
-              <p><strong>Size:</strong> {formatFileSize(selectedImage.size)}</p>
-              <img src={selectedImage.url} alt={selectedImage.name} />
+              <dl className="metadata-list">
+                <div>
+                  <dt>Display name</dt>
+                  <dd>{getImageDisplayName(selectedImage)}</dd>
+                </div>
+                <div>
+                  <dt>File name</dt>
+                  <dd>{getImageFileName(selectedImage)}</dd>
+                </div>
+                <div>
+                  <dt>ID</dt>
+                  <dd>{getImageId(selectedImage)}</dd>
+                </div>
+                <div>
+                  <dt>Size</dt>
+                  <dd>{formatFileSize(selectedImage.size)}</dd>
+                </div>
+                <div>
+                  <dt>MIME type</dt>
+                  <dd>{selectedImage.mimeType || 'Not available'}</dd>
+                </div>
+                <div>
+                  <dt>S3 bucket</dt>
+                  <dd>{selectedImage.bucket || 'Not available'}</dd>
+                </div>
+                <div>
+                  <dt>S3 key</dt>
+                  <dd>{selectedImage.key || getImageFileName(selectedImage)}</dd>
+                </div>
+                <div>
+                  <dt>Uploaded</dt>
+                  <dd>{formatDateTime(selectedImage.uploadedAt)}</dd>
+                </div>
+                <div>
+                  <dt>Last updated</dt>
+                  <dd>{formatDateTime(selectedImage.updatedAt)}</dd>
+                </div>
+                <div className="metadata-wide">
+                  <dt>CloudFront URL</dt>
+                  <dd>
+                    {getImageRenderUrl(selectedImage) ? (
+                      <a href={getImageRenderUrl(selectedImage)} target="_blank" rel="noreferrer">{getImageRenderUrl(selectedImage)}</a>
+                    ) : (
+                      'Not configured by backend'
+                    )}
+                  </dd>
+                </div>
+              </dl>
+              {getImageRenderUrl(selectedImage) ? (
+                <img src={getImageRenderUrl(selectedImage)} alt={getImageDisplayName(selectedImage)} />
+              ) : (
+                <div className="image-placeholder" role="status">
+                  CloudFront URL unavailable. Set AWS_CLOUDFRONT_DOMAIN_NAME in the backend to render this image.
+                </div>
+              )}
               <div className="actions">
                 <button type="button" className="danger-button" onClick={handleDelete}>Delete image</button>
               </div>
@@ -432,7 +530,7 @@ function App() {
           <h2>Update selected image</h2>
           <form onSubmit={handleUpdate} className="form-stack">
             <input type="file" accept="image/*" onChange={(event) => setUpdateFile(event.target.files?.[0] || null)} />
-            <input type="text" placeholder="Optional new name" value={updateName} onChange={(event) => setUpdateName(event.target.value)} />
+            <input type="text" placeholder="Optional new display name" value={updateName} onChange={(event) => setUpdateName(event.target.value)} />
             <button type="submit">Update</button>
           </form>
         </div>
