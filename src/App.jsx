@@ -131,9 +131,7 @@ function App() {
   const [selectedImageId, setSelectedImageId] = useState('');
   const [selectedImage, setSelectedImage] = useState(null);
   const [uploadFile, setUploadFile] = useState(null);
-  const [uploadName, setUploadName] = useState('');
   const [updateFile, setUpdateFile] = useState(null);
-  const [updateName, setUpdateName] = useState('');
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState([]);
   const [username, setUsername] = useState('');
@@ -269,9 +267,6 @@ function App() {
     try {
       const formData = new FormData();
       formData.append('image', uploadFile);
-      if (uploadName) {
-        formData.append('name', uploadName);
-      }
 
       const data = await requestJson(`${API_BASE}/api/images`, {
         method: 'POST',
@@ -280,7 +275,6 @@ function App() {
 
       appendLog('INFO', 'UI', `Uploaded ${getImageFileName(data?.image) || uploadFile.name}`);
       setUploadFile(null);
-      setUploadName('');
       event.target.reset();
       await refreshImages();
       setSelectedImageId(getImageId(data.image));
@@ -306,9 +300,6 @@ function App() {
       if (updateFile) {
         formData.append('image', updateFile);
       }
-      if (updateName) {
-        formData.append('name', updateName);
-      }
 
       const data = await requestJson(`${API_BASE}/api/images/${selectedImage.imageId || selectedImage._id}`, {
         method: 'PUT',
@@ -317,7 +308,6 @@ function App() {
 
       appendLog('INFO', 'UI', `Updated ${getImageDisplayName(data?.image) || getImageDisplayName(selectedImage)}`);
       setUpdateFile(null);
-      setUpdateName('');
       event.target.reset();
       await refreshImages();
     } catch (error) {
@@ -327,6 +317,11 @@ function App() {
 
   const handleDelete = async () => {
     if (!selectedImage) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete ${getImageDisplayName(selectedImage)}? This action cannot be undone.`);
+    if (!confirmed) {
       return;
     }
 
@@ -397,6 +392,11 @@ function App() {
       return;
     }
 
+    const confirmed = window.confirm('Delete all images? This action cannot be undone.');
+    if (!confirmed) {
+      return;
+    }
+
     try {
       setDeleteAllStatus('Deleting all images...');
       const result = await requestJson(`${API_BASE}/api/images/delete-all`, {
@@ -460,24 +460,12 @@ function App() {
                   <dd>{getImageFileName(selectedImage)}</dd>
                 </div>
                 <div>
-                  <dt>ID</dt>
-                  <dd>{getImageId(selectedImage)}</dd>
-                </div>
-                <div>
                   <dt>Size</dt>
                   <dd>{formatFileSize(selectedImage.size)}</dd>
                 </div>
                 <div>
                   <dt>MIME type</dt>
                   <dd>{selectedImage.mimeType || 'Not available'}</dd>
-                </div>
-                <div>
-                  <dt>S3 bucket</dt>
-                  <dd>{selectedImage.bucket || 'Not available'}</dd>
-                </div>
-                <div>
-                  <dt>S3 key</dt>
-                  <dd>{selectedImage.key || getImageFileName(selectedImage)}</dd>
                 </div>
                 <div>
                   <dt>Uploaded</dt>
@@ -520,7 +508,6 @@ function App() {
           <h2>Upload a new image</h2>
           <form onSubmit={handleUpload} className="form-stack">
             <input type="file" accept="image/*" onChange={(event) => setUploadFile(event.target.files?.[0] || null)} />
-            <input type="text" placeholder="Optional display name" value={uploadName} onChange={(event) => setUploadName(event.target.value)} />
             <button type="submit">Upload</button>
           </form>
           <p className="helper-text">Maximum upload size: {formatFileSize(MAX_IMAGE_SIZE_BYTES)}</p>
@@ -530,7 +517,6 @@ function App() {
           <h2>Update selected image</h2>
           <form onSubmit={handleUpdate} className="form-stack">
             <input type="file" accept="image/*" onChange={(event) => setUpdateFile(event.target.files?.[0] || null)} />
-            <input type="text" placeholder="Optional new display name" value={updateName} onChange={(event) => setUpdateName(event.target.value)} />
             <button type="submit">Update</button>
           </form>
         </div>
