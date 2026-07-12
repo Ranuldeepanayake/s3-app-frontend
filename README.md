@@ -8,6 +8,9 @@ A simple React application for interacting with the S3 image API in the backend 
 - Upload a new image
 - Update an existing image
 - Delete an image
+- Login with backend JWT credentials
+- Query the protected backend readiness health check
+- Delete all images from a dedicated protected page
 - Show a timestamped activity log in the browser
 
 ## Setup
@@ -38,4 +41,6 @@ docker compose up --build
 
 ## Notes
 - The UI expects the backend to be running before it loads data.
+- Home remains the image dashboard. Use the navbar to open Login, Protected Health, and Delete All pages.
+- Protected pages send the saved JWT as `Authorization: Bearer <token>`.
 - The activity log is intended as a lightweight browser-side logger for debugging requests and UI events.

@@ -1,14 +1,13 @@
-/* Shared styling for the image management dashboard. */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   font-family: Arial, sans-serif;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: #f5f7fb;
+  color: #172033;
 }
 
 body {
   margin: 0;
-  background: #0f172a;
+  background: #f5f7fb;
 }
 
 * {
@@ -20,14 +19,143 @@ input {
   font: inherit;
 }
 
+button {
+  cursor: pointer;
+  border: none;
+  padding: 9px 14px;
+  border-radius: 8px;
+  background: #2563eb;
+  color: white;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+input {
+  width: 100%;
+  padding: 9px;
+  border-radius: 8px;
+  border: 1px solid #b8c2d6;
+  background: white;
+  color: #172033;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 700;
+}
+
+code {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #e8edf7;
+}
+
 .app-shell {
-  max-width: 1100px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 24px;
 }
 
-header {
-  margin-bottom: 16px;
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 12px;
+  border: 1px solid #d8e0ef;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 30px rgba(31, 41, 55, 0.08);
+}
+
+.brand-button,
+.nav-links button,
+.link-button,
+.secondary-button {
+  color: #172033;
+  background: transparent;
+}
+
+.brand-button {
+  padding-left: 6px;
+  font-weight: 800;
+}
+
+.nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.nav-links button {
+  border: 1px solid transparent;
+}
+
+.nav-links button.active,
+.nav-links button:hover,
+.secondary-button {
+  border-color: #b8c2d6;
+  background: #e8edf7;
+}
+
+.auth-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: #eef2f7;
+  color: #334155;
+  font-size: 0.92rem;
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #d94a4a;
+}
+
+.status-dot.authenticated {
+  background: #14835b;
+}
+
+.link-button {
+  padding: 0;
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+.page-heading {
+  margin-bottom: 18px;
+}
+
+.page-heading h1 {
+  margin: 0 0 8px;
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  letter-spacing: 0;
+}
+
+.page-heading p {
+  margin: 0 0 16px;
+  color: #53627a;
+  line-height: 1.5;
+}
+
+.narrow-page {
+  max-width: 680px;
 }
 
 .grid {
@@ -37,11 +165,28 @@ header {
 }
 
 .panel {
-  background: #111827;
-  border: 1px solid #334155;
-  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #d8e0ef;
+  border-radius: 8px;
   padding: 16px;
   margin-bottom: 16px;
+  box-shadow: 0 8px 24px rgba(31, 41, 55, 0.06);
+}
+
+.panel h2 {
+  margin-top: 0;
+}
+
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.panel-heading h2 {
+  margin: 0;
 }
 
 .image-list {
@@ -58,20 +203,20 @@ header {
   text-align: left;
   padding: 10px;
   border-radius: 8px;
-  border: 1px solid #475569;
-  background: #1f2937;
+  border: 1px solid #c8d2e4;
+  background: #f8fafc;
   color: inherit;
 }
 
 .image-list button.active {
-  border-color: #38bdf8;
-  background: #0f766e;
+  border-color: #2563eb;
+  background: #dbeafe;
 }
 
 .image-list span {
   display: block;
   font-size: 0.85rem;
-  opacity: 0.7;
+  color: #64748b;
   margin-top: 4px;
 }
 
@@ -83,6 +228,12 @@ img {
   border-radius: 8px;
 }
 
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .forms-panel {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -92,30 +243,13 @@ img {
 .form-stack {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-button {
-  cursor: pointer;
-  border: none;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: #2563eb;
-  color: white;
-}
-
-input {
-  padding: 8px;
-  border-radius: 8px;
-  border: 1px solid #64748b;
-  background: white;
-  color: #111827;
+  gap: 10px;
 }
 
 .log-list {
   max-height: 220px;
   overflow: auto;
-  font-family: monospace;
+  font-family: Consolas, monospace;
   font-size: 0.9rem;
   list-style: none;
   padding: 0;
@@ -126,17 +260,66 @@ input {
 }
 
 .helper-text {
-  margin: 0;
-  font-size: 0.9rem;
-  opacity: 0.8;
+  margin: 10px 0 0;
+  font-size: 0.94rem;
+  color: #53627a;
+  line-height: 1.45;
 }
 
 .danger-button {
   background: #dc2626;
-  margin-top: 8px;
 }
 
-@media (max-width: 800px) {
+.danger-panel {
+  border-color: #fecaca;
+}
+
+.notice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 14px;
+  border-radius: 8px;
+  line-height: 1.45;
+}
+
+.error-notice {
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #7f1d1d;
+}
+
+.json-output {
+  max-height: 420px;
+  overflow: auto;
+  padding: 14px;
+  border-radius: 8px;
+  background: #172033;
+  color: #e8edf7;
+  font-size: 0.92rem;
+}
+
+@media (max-width: 850px) {
+  .navbar {
+    position: static;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .brand-button {
+    align-self: flex-start;
+  }
+
+  .nav-links {
+    justify-content: flex-start;
+  }
+
+  .auth-chip {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
   .grid,
   .forms-panel {
     grid-template-columns: 1fr;
