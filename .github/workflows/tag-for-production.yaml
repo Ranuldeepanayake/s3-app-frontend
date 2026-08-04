@@ -1,0 +1,94 @@
+#Retag an image. Use this to tag an existing image with a new tag. This is useful for promoting an image to production without rebuilding it.
+#In AWS ECR, a single digest can be tagged with multiple unique tags.
+#However, a single tag can only be associated with a single digest. If you try to retag an image with a tag that already exists, it will remove
+#the existing tag and associate it with the new digest. 
+
+name: Tag for production
+
+on:
+  workflow_dispatch:
+    inputs:
+      #Source image tag.
+      INPUT_IMAGE_TAG:
+        description: "Source image tag (e.g. 1.0.0-rc.8-RELEASE*)"
+        required: true
+
+#Global environment variables.
+env:
+  INPUT_IMAGE_TAG: ${{ github.event.inputs.INPUT_IMAGE_TAG }}
+  AWS_REGION: ap-southeast-1
+  ECR_REPOSITORY_URL: 104322896078.dkr.ecr.ap-southeast-1.amazonaws.com
+  ECR_REPOSITORY_GROUP: s3-app
+  ECR_REPOSITORY_NAME: backend
+
+#Permissions.
+permissions:
+  contents: read
+
+jobs:
+  tag-for-production:
+  
+    runs-on: ubuntu-latest  #Runner label.
+    environment: production #Environment.
+    timeout-minutes: 30     #Timeout against runaway jobs.
+
+    steps:
+        #Validate the input image tag (ex- 1.0.0-rc.8-RELEASE*, 1.0.3-rc.5-HOTFIX*). Only certain formats are allowed to avoid accidental tagging of wrong images.
+      - name: Validate input image tag
+        run: |
+          #Additional safegaurd to make sure only release branches are built. This is a double check since the version number is already checked to be in the correct format.
+
+          #Allowed patterns.
+          PATTERN_1="^[0-9]+\.[0-9]+\.[0]-rc\.[0-9]+-RELEASE.*$"
+          PATTERN_2="^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+-HOTFIX.*$"
+
+          if [[ "${INPUT_IMAGE_TAG}" =~ $PATTERN_1 ]]; then
+            echo "RELEASE image tag selected: ${INPUT_IMAGE_TAG}"
+          elif [[ "${INPUT_IMAGE_TAG}" =~ $PATTERN_2 ]]; then
+            echo "HOTFIX image tag selected: ${INPUT_IMAGE_TAG}"
+          else
+            echo "❌ invalid input image tag: ${INPUT_IMAGE_TAG}"
+            exit 1          
+          fi
+
+        #Log in to the artifact repository.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+        #Verify that the AWS CLI is configured correctly.
+      - name: Verify AWS CLI
+        run: |
+          aws --version
+          aws sts get-caller-identity
+
+        #Extract the version number from the input image tag to be used as the target image tag.
+      - name: Prepare target image tag
+        run: |          
+          VERSION_NUMBER=$(echo ${INPUT_IMAGE_TAG} | awk -F '-' '{print $1}' | tr -d '\n')
+          echo "VERSION_NUMBER=$VERSION_NUMBER" >> $GITHUB_ENV
+          echo "Extracted version number as the target tag: ${VERSION_NUMBER}"
+
+        #Verify if the input image tag exists in the ECR repository and retag.
+      - name: Verify and retag input image tag
+        run: |
+          #Get manifest of existing image.
+          MANIFEST=$(aws ecr batch-get-image --repository-name ${ECR_REPOSITORY_GROUP}/${ECR_REPOSITORY_NAME} \
+                    --image-ids imageTag=${INPUT_IMAGE_TAG} --query 'images[].imageManifest' --output text)
+
+          echo "Manifest data: $MANIFEST"
+
+          #Check if the manifest is empty, which means the input image tag does not exist in the ECR repository.
+          if [ -z "$MANIFEST" ]; then
+            echo "❌ Input image tag ${INPUT_IMAGE_TAG} does not exist in the ECR repository."
+            exit 1
+          else
+            echo "✅ Input image tag ${INPUT_IMAGE_TAG} exists in the ECR repository."
+          fi
+
+          #Perform the retag.
+          aws ecr put-image --repository-name ${ECR_REPOSITORY_GROUP}/${ECR_REPOSITORY_NAME} \
+          --image-tag ${VERSION_NUMBER} --image-manifest "$MANIFEST"

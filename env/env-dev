@@ -1,0 +1,7 @@
+env:
+  frontend:
+    VITE_UI_PORT: 3300
+    VITE_API_TARGET: http://192.168.56.128:3100
+    VITE_MAX_IMAGE_SIZE_BYTES: 5242880
+#Some sensistive environment variables have been mounted as secrets. These secrets are mounted as environment variables in the container.
+

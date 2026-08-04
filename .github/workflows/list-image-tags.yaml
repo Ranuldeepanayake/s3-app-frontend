@@ -1,0 +1,103 @@
+#List image tags in a docker image repository based on the tag type (develop, release, feature, bugfix).
+
+name: List image tags
+
+on:
+  workflow_dispatch:
+    inputs:
+      #Input to select the action.
+      INPUT_TAG_TYPE:
+        description: 'Select tag type'
+        required: true
+        default: develop
+        type: choice
+        options:
+          - DEVELOP
+          - FEATURE
+          - BUGFIX
+          - RELEASE
+          - HOTFIX
+          - PRODUCTION
+
+#Global environment variables.
+env:
+  INPUT_TAG_TYPE: ${{ github.event.inputs.INPUT_TAG_TYPE }}
+  AWS_REGION: ap-southeast-1
+  ECR_REPOSITORY_URL: 104322896078.dkr.ecr.ap-southeast-1.amazonaws.com
+  ECR_REPOSITORY_GROUP: s3-app
+  ECR_REPOSITORY_NAME: backend
+
+#Permissions.
+permissions:
+  contents: read
+
+jobs:
+  list-image-tags:
+
+    runs-on: ubuntu-latest  #Runner label.
+    timeout-minutes: 30     #Timeout against runaway jobs.
+
+    steps:
+      #Log in to the artifact repository.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      #Verify that the AWS CLI is configured correctly.
+      - name: Verify AWS CLI
+        run: |
+          aws --version
+          aws sts get-caller-identity
+
+      #List non-production image tags with the AWS CLI.
+      - name: List image tags
+        if : ${{ env.INPUT_TAG_TYPE != 'PRODUCTION' }}
+        run: |
+          #Query the tags.
+          aws ecr describe-images --repository-name "${ECR_REPOSITORY_GROUP}/${ECR_REPOSITORY_NAME}" \
+          --query "imageDetails[?imageTags!=null].imageTags[]" --output text | tr '\t' '\n' | grep "$INPUT_TAG_TYPE" | \
+
+          #Extract version and timestamp
+          awk '{
+            match($0, /[0-9]{8}_[0-9]{6}/, m);
+            version=$1;
+            timestamp=m[0];
+            printf "%s %s %s\n", version, timestamp, $0
+          }' | \
+
+          #Sort: version descending, then timestamp descending
+          sort -k1,1Vr -k2,2r | \
+
+          #Extract full tag
+          awk '{print $3}'
+
+        #List production image tags with the AWS CLI.
+      - name: List image tags
+        if : ${{ env.INPUT_TAG_TYPE == 'PRODUCTION' }}
+        run: |
+          aws ecr describe-images --repository-name "${ECR_REPOSITORY_GROUP}/${ECR_REPOSITORY_NAME}" \
+          --query "imageDetails[?imageTags!=null].imageTags[]" --output text | tr '\t' '\n' | sort -u | \
+          grep -E "^[0-9]+\.[0-9]+\.[0-9]+$"
+
+
+# aws ecr describe-images \
+#   --repository-name "${ECR_REPOSITORY_GROUP}/${ECR_REPOSITORY_NAME}" \
+#   --query "imageDetails[?imageTags!=null].imageTags[] | [?contains(@, '${INPUT_TAG_TYPE}')] | sort(@) | reverse(@)" \
+#   --output table
+
+#Show all.
+#--query 'imageDetails[].imageTags[]'
+
+#Filter by name.
+#--query 'imageDetails[].imageTags[?starts_with(@, `v`)][]'
+
+#Filter by push time (newest).
+#--query 'imageDetails | sort_by(@,& imagePushedAt) | reverse(@)[].imageTags[]' 
+
+#List with pushed timestamp
+#--query 'imageDetails[].{Tags:imageTags,PushedAt:imagePushedAt}'
+
+#--query "imageDetails[?imageTags!=null].imageTags[] | [?contains(@, '${INPUT_TAG_TYPE}')] | sort(@) | reverse(@)" \

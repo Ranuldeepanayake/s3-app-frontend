@@ -1,0 +1,426 @@
+#Build a hotfix branch, upload the artifact to a repository and update the GitOps repository.
+#Do a build first with an incremented rc number. If the build fails, don't increment the rc number in the repo or create a tag
+#since a keeping broken build has no value. If the build is successful, increment the rc number in the repo, create a tag and
+#deploy to QA. A new hotfix branch will start with the version x.x.1-rc.0-HOTFIX. When a candidate hotfix is ready for production, 
+#the hotfix branch will be merged into main with the hotfix version number but without the rc tag. The hotfix branch will also be merged into develop to 
+#keep the develop branch up to date with the hotfix changes but without the hotfix version number or rc tag.
+#The hotfix branch will be deleted after the merge into main and develop.
+
+name: Build hotfix branch
+
+#Trigger the workflow on-push and manually.
+on:
+  #If enabled, the workflow runs when conflicts are resolved through the GUI which is troublesome.
+  # push:
+  #   branches: 
+  #   - "hotfix/**"
+  workflow_dispatch:
+    inputs:
+      #Input to select the action.
+      INPUT_ACTION:
+        description: 'Select action'
+        required: true
+        default: build-and-deploy
+        type: choice
+        options:
+          - build
+          - build-and-deploy
+
+#Global environment variables.
+env:
+  INPUT_ACTION: ${{ github.event.inputs.INPUT_ACTION || 'build-and-deploy' }} #Default needed since the workflow will not use the input default when run on-push.
+  VERSION_FILE: package.json
+  AWS_REGION: ap-southeast-1
+  AWS_USERNAME: AWS
+  ECR_REPOSITORY_URL: 104322896078.dkr.ecr.ap-southeast-1.amazonaws.com
+  ECR_REPOSITORY_GROUP: s3-app
+  ECR_REPOSITORY_NAME: backend
+  PARENT_BRANCH: develop
+  PRODUCTION_BRANCH: main
+  COMMIT_USERNAME: github-actions
+  COMMIT_EMAIL: github-actions@github.com
+  PR_REVIEWERS: ${{ vars.PR_REVIEWERS }}
+  PR_ASSIGNEES: ${{ vars.PR_ASSIGNEES }}
+  PR_LABELS: ${{ vars.PR_LABELS }}
+  DEPLOYMENT_REPOSITORY: Ranuldeepanayake/helm
+  DEPLOYMENT_REPOSITORY_BRANCH: develop
+  DEPLOYMENT_REPOSITORY_PATH: deployment-repo
+  QA_ENVIRONMENT_SOURCE_FILE: env/env-qa
+  QA_ENVIRONMENT_DESTINATION_FILE: environments/s3-app/qa/backend-env.yaml
+  QA_ENVIRONMENT_VALUES_FILE: environments/s3-app/qa/values.yaml
+  DEPLOYMENT_MANIFEST_SERVICE_NAME: backend
+
+#Permissions.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  build-hotfix-branch:
+
+    runs-on: ubuntu-latest  #Runner label.
+    timeout-minutes: 30     #Timeout against runaway jobs.
+
+    steps:
+      #Checkout the branch which is being built.
+    - name: Repository checkout
+      uses: actions/checkout@v5
+      with:
+        clean: true      #Cleans the workspace before checking out code.
+        fetch-depth: 0   #Required to push back
+
+      #Ensure jq is available. 
+    - name: Install jq 
+      run: sudo apt update && sudo apt install -y jq
+
+      #Get the branch name.
+    - name: Get branch name
+      run: |
+        #Get the branch name. The below statement handles the change in variable used depending on push/pull.
+        BRANCH_NAME="${GITHUB_REF_NAME:-${GITHUB_HEAD_REF}}"
+        echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+        echo "Branch name: ${BRANCH_NAME}"
+
+      #Branch name validation. Skip if building a pull request since the branch name is not available in that case.
+    - name: Validate branch name
+      if: github.event_name != 'pull_request'
+      run: |
+        #Allowed patterns.
+        PATTERN="^(hotfix/.+)$"
+
+        if [[ "${BRANCH_NAME}" =~ $PATTERN ]]; then
+          echo "✅ valid branch: ${BRANCH_NAME}"
+        else
+          echo "❌ invalid branch: ${BRANCH_NAME}"
+          exit 1
+        fi
+
+      #Check if the version number is in the correct format.
+    - name: Validate version number
+      run: |
+        echo "Version file: ${VERSION_FILE}"
+
+        #Read the version file.
+        VERSION_NUMBER=$(jq -r '.version' ${VERSION_FILE} | tr -d '\n')
+        
+        #Append the version number variable to the array of runtime variables.
+        echo "VERSION_NUMBER=$VERSION_NUMBER" >> $GITHUB_ENV
+        echo "Version number: ${VERSION_NUMBER}"
+        
+        #Allowed patterns.
+        PATTERN="([0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+){1,1}"
+
+        if [[ ! ${VERSION_NUMBER} =~ $PATTERN ]]; then
+          echo "❌ Version number ${VERSION_NUMBER} is inconsistent with the format. Exiting!"
+          echo "Allowed formats: x.x.x-rc.x"
+          exit 1
+        else
+          echo "✅ Version number ${VERSION_NUMBER} is consistent with the format"
+        fi
+
+      #Read and increment the rc number.
+    - name: Increment the rc number
+      run: |
+        #Read the version number.
+        VERSION_NUMBER_FIRST_SEGMENT=$(echo ${VERSION_NUMBER} | awk -F '-rc.' '{print $1}' | tr -d '\n')
+        echo "VERSION_NUMBER_FIRST_SEGMENT=$VERSION_NUMBER_FIRST_SEGMENT" >> $GITHUB_ENV
+        echo "Version number first segment: ${VERSION_NUMBER_FIRST_SEGMENT}"
+
+        RC_TAG=$(echo ${VERSION_NUMBER} | awk -F '-rc.' '{print $2}' | tr -d '\n')
+        echo "RC tag: $RC_TAG"
+
+        #Increment the rc tag.
+        INCREMENTED_VERSION="$VERSION_NUMBER_FIRST_SEGMENT-rc.$((RC_TAG + 1))"
+        echo "INCREMENTED_VERSION=$INCREMENTED_VERSION" >> $GITHUB_ENV
+          
+        echo "Incremented version: ${INCREMENTED_VERSION}"
+
+        #Allowed patterns.
+        PATTERN="([0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+){1,1}"
+
+        if [[ ! ${INCREMENTED_VERSION} =~ $PATTERN ]]; then
+          echo "❌ Version number ${INCREMENTED_VERSION} is inconsistent with the format. Exiting!"
+          echo "Allowed formats: x.x.0-rc.x"
+          exit 1
+        else
+          echo "✅ Version number ${INCREMENTED_VERSION} is consistent with the format"
+        fi
+
+      #Prepare the image tag with the necessary appends.
+    - name: Prepare image tag
+      run: | 
+        #Append the time stamp variable to the array of runtime variables.
+        BUILD_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')
+        echo "BUILD_TIMESTAMP=$BUILD_TIMESTAMP" >> $GITHUB_ENV
+        echo "Build timestamp: ${BUILD_TIMESTAMP}"
+
+        #Append the commit digest.
+        DIGEST_SHA=COMMITSHA_$(echo "${GITHUB_SHA}" | cut -c1-8)
+        echo "DIGEST_SHA=$DIGEST_SHA" >> $GITHUB_ENV
+        echo "Digest (SHA): ${DIGEST_SHA}"
+
+        #Get the branch name. The below statement handles the change in variable used depending on push/pull.
+        BRANCH_NAME="${GITHUB_REF_NAME:-${GITHUB_HEAD_REF}}"
+        echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+        echo "Branch name: ${BRANCH_NAME}"
+
+        IMAGE_TAG=${INCREMENTED_VERSION}-HOTFIX-SNAPSHOT-${BUILD_TIMESTAMP}-${DIGEST_SHA}
+
+        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+        echo "Image tag: ${IMAGE_TAG}"
+
+      #Configure the artifact repository credentials.
+    - name: Configure artifact repository credentials
+      uses: aws-actions/configure-aws-credentials@v5
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+      #Log in to the artifact repository (private).
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+      #Log in to the artifact repository (public).
+    # - name: Login to the artifact repository
+    #   run: |
+    #     aws ecr-public get-login-password --region ${AWS_REGION} | docker login --username ${AWS_USERNAME} --password-stdin ${ECR_REPOSITORY_URL}
+
+      #Build the image.
+    - name: Build image
+      run: |
+        echo "Image name: ${ECR_REPOSITORY_URL}/${ECR_REPOSITORY_GROUP}/${ECR_REPOSITORY_NAME}:${IMAGE_TAG}"
+        docker build -t ${ECR_REPOSITORY_URL}/${ECR_REPOSITORY_GROUP}/${ECR_REPOSITORY_NAME}:${IMAGE_TAG} .
+
+      #Push the built image to an artifact repository.
+    - name: Push image to artifact repository
+      run: |
+        docker push ${ECR_REPOSITORY_URL}/${ECR_REPOSITORY_GROUP}/${ECR_REPOSITORY_NAME}:${IMAGE_TAG}
+
+      #Update the version file with the new value.
+    - name: Update version file
+      run: |        
+        jq ".version = \"${INCREMENTED_VERSION}\"" ${VERSION_FILE} > temp.json && mv temp.json ${VERSION_FILE}
+
+        INCREMENTED_VERSION_READ_BACK=$(jq -r '.version' ${VERSION_FILE} | tr -d '\n')
+        echo "Written incremented version: $INCREMENTED_VERSION_READ_BACK"
+
+        #Validate written changes.
+        if [[ ! $INCREMENTED_VERSION_READ_BACK =~ ${INCREMENTED_VERSION} ]]; then
+          echo "❌ Incremented version not written correctly to the version file. Exiting!"
+          exit 1
+        else
+          echo "✅ Incremented version written correctly to the version file"
+        fi
+
+      #Commit and push the changes to the hotfix branch.
+    - name: Commit and push to hotfix
+      run: |
+        git config user.name ${COMMIT_USERNAME} 
+        git config user.email ${COMMIT_EMAIL}
+
+        git add ${VERSION_FILE}
+        git commit -m "Pipeline (hotfix rc tag increment): incremeted the hotfix rc tag to ${INCREMENTED_VERSION}" || echo "No changes to commit"
+
+        #Create a git tag.
+        git tag -a ${INCREMENTED_VERSION} -m "Hotfix release candidate tag ${INCREMENTED_VERSION}"
+        echo "Tags: $(git tag -l)"
+        
+        git push origin ${BRANCH_NAME}
+
+        #Push the tag.
+        git push origin ${INCREMENTED_VERSION}
+
+      #Create a pull request for the develop branch through the API. The Peter Evans' PR creator does not work for this scenario.
+    - name: Create pull request for develop
+      env:
+        GH_TOKEN: ${{ github.token }} #Created automatically when the pipeline runs.
+      run: |
+        #Create a temporary file and write the output of the the request to it while printing the status code to STDOUT for easier debugging.
+        HTTP_RESPONSE=$(mktemp)
+
+        #Make the API call.
+        HTTP_STATUS_CODE=$(curl -sSL \
+          -o "$HTTP_RESPONSE" \
+          -w "%{http_code}" \
+          -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          https://api.github.com/repos/${{ github.repository }}/pulls \
+          -d '{
+            "title":"Pipeline (hotfix): Merge hotfix changes of ${{ env.VERSION_NUMBER_FIRST_SEGMENT }} into ${{ env.PARENT_BRANCH }}",
+            "head":"${{ env.BRANCH_NAME }}",
+            "base":"${{ env.PARENT_BRANCH }}",
+            "body":"Pipeline (hotfix): Merge hotfix changes of ${{ env.VERSION_NUMBER_FIRST_SEGMENT }} from ${{ env.BRANCH_NAME }} into ${{ env.PARENT_BRANCH }}"
+          }')
+
+        echo "HTTP status code: $HTTP_STATUS_CODE"
+
+        #Get the PR number.
+        PR_NUMBER=$(jq -r '.number' "$HTTP_RESPONSE")
+        echo "Pull request number: $PR_NUMBER"
+
+        #Add reviewers to the PR.
+        curl -sSL \
+          -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER/requested_reviewers \
+          -d "{
+            \"reviewers\": ${PR_REVIEWERS}
+          }"
+
+        #Add assignees to the PR.
+        curl -sSL \
+          -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/assignees \
+          -d "{
+            \"assignees\": ${PR_ASSIGNEES}
+          }"
+
+        #Add labels to the PR.
+        curl -sSL \
+          -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/labels \
+          -d "{
+            \"labels\": ${PR_LABELS}
+          }"
+
+      #Create a pull request for the production branch through the API. The Peter Evans' PR creator does not work for this scenario.
+    - name: Create pull request for production
+      env:
+        GH_TOKEN: ${{ github.token }} #Created automatically when the pipeline runs.
+      run: |
+        #Create a temporary file and write the output of the the request to it while printing the status code to STDOUT for easier debugging.
+        HTTP_RESPONSE=$(mktemp)
+
+        #Make the API call.
+        HTTP_STATUS_CODE=$(curl -sSL \
+          -o "$HTTP_RESPONSE" \
+          -w "%{http_code}" \
+          -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          https://api.github.com/repos/${{ github.repository }}/pulls \
+          -d '{
+            "title":"Pipeline (hotfix): Merge hotfix changes of ${{ env.VERSION_NUMBER_FIRST_SEGMENT }} into ${{ env.PRODUCTION_BRANCH }}",
+            "head":"${{ env.BRANCH_NAME }}",
+            "base":"${{ env.PRODUCTION_BRANCH }}",
+            "body":"Pipeline (hotfix): Merge hotfix changes of ${{ env.VERSION_NUMBER_FIRST_SEGMENT }} from ${{ env.BRANCH_NAME }} into ${{ env.PRODUCTION_BRANCH }}"
+          }')
+
+        echo "HTTP status code: $HTTP_STATUS_CODE"
+
+        #Get the PR number.
+        PR_NUMBER=$(jq -r '.number' "$HTTP_RESPONSE")
+        echo "Pull request number: $PR_NUMBER"
+
+        #Add reviewers to the PR.
+        curl -sSL \
+          -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER/requested_reviewers \
+          -d "{
+            \"reviewers\": ${PR_REVIEWERS}
+          }"
+
+        #Add assignees to the PR.
+        curl -sSL \
+          -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/assignees \
+          -d "{
+            \"assignees\": ${PR_ASSIGNEES}
+          }"
+
+        #Add labels to the PR.
+        curl -sSL \
+          -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/labels \
+          -d "{
+            \"labels\": ${PR_LABELS}
+          }"
+
+    ###############################################
+    #Deployment. 
+    ###############################################
+    #It is better not to copy the .env file if the deployment option has not been selected, since a change in the .env would trigger a deployment even 
+    #which would contradict the intention of the user who selected the build option only. Therefore, only copy the .env file if the buil-and-deploy option is selected.
+
+      #Checkout the gitops repository.
+    - name: Checkout the deployment repository
+      if: ${{ env.INPUT_ACTION == 'build-and-deploy' }}
+      uses: actions/checkout@v5
+      with:
+        repository: ${{ env.DEPLOYMENT_REPOSITORY }}
+        ref: ${{ env.DEPLOYMENT_REPOSITORY_BRANCH }}
+        ssh-key: ${{ secrets.DEPLOYMENT_REPOSITORY_SSH_PRIVATE_KEY }}
+        path: ${{ env.DEPLOYMENT_REPOSITORY_PATH }}
+        clean: true      #Cleans the workspace before checking out code.
+        fetch-depth: 0   #Required to push back
+
+      #Checkout the hotfix branch again to get the .env file.
+    - name: Checkout hotfix branch
+      if: ${{ env.INPUT_ACTION == 'build-and-deploy' }}
+      run: |
+        git checkout ${BRANCH_NAME}
+        echo "Selected branch: $(git branch)"
+
+      #Copy the .env file to the deployment repository.
+    - name: Copy the .env file to the deployment repository
+      if: ${{ env.INPUT_ACTION == 'build-and-deploy' }}
+      run: |
+        cp ${QA_ENVIRONMENT_SOURCE_FILE} ${DEPLOYMENT_REPOSITORY_PATH}/${QA_ENVIRONMENT_DESTINATION_FILE}
+        cd ${DEPLOYMENT_REPOSITORY_PATH}
+
+        #Verify the change.
+        if [[ -f "${QA_ENVIRONMENT_DESTINATION_FILE}" ]]; then
+          echo "✅ .env file exists in the destination"
+        else
+          echo "❌ .env file does not exist in the destination!"
+          exit 1
+        fi
+
+      #Change the image tag in the deployment repository.
+    - name: Update the image tag in the deployment repository
+      if: ${{ env.INPUT_ACTION == 'build-and-deploy' }}
+      uses: mikefarah/yq@v4.44.1
+      with:
+        cmd: |
+          cd ${DEPLOYMENT_REPOSITORY_PATH}
+          yq -i '(.containers[] | select(.name == env(DEPLOYMENT_MANIFEST_SERVICE_NAME)) | .tag) = env(IMAGE_TAG)' "${QA_ENVIRONMENT_VALUES_FILE}"
+
+          #Verify the change.
+          TAG_READ_BACK=$(yq '.containers[] | select(.name == env(DEPLOYMENT_MANIFEST_SERVICE_NAME)) | .tag' "${QA_ENVIRONMENT_VALUES_FILE}")
+          echo "Tag read back: $TAG_READ_BACK"
+
+          if [[ "$TAG_READ_BACK" == "${IMAGE_TAG}" ]]; then
+            echo "✅ Image tag updated successfully"
+          else
+            echo "❌ Image tag update failed!"
+            exit 1
+          fi
+
+      #Commit and push the change to the deployment repository.
+    - name: Commit and push to the deployment repository
+      if: ${{ env.INPUT_ACTION == 'build-and-deploy' }}
+      run: |
+        cd ${DEPLOYMENT_REPOSITORY_PATH}
+
+        git config user.name ${COMMIT_USERNAME} 
+        git config user.email ${COMMIT_EMAIL}
+
+        git add ${QA_ENVIRONMENT_VALUES_FILE};
+        git add ${QA_ENVIRONMENT_DESTINATION_FILE};
+        git commit -m "Pipeline (helm): replaced the image tag with ${IMAGE_TAG} and the .env file" || echo "No changes to commit"
+
+        git push

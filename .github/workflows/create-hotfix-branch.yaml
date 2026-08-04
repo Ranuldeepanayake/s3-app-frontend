@@ -1,0 +1,272 @@
+#Create a new hotfix branch from the main branch, start the version number with x.x.1-rc.0-HOTFIX*.
+#Build the hotfix branch, push the artifact to the image repository and deploy the hotfix branch to the QA environment through the GitOps repository.
+#No need to merge the newly created hotfix branch with main or develop since there won't be any outstanding changes.
+
+name: Create hotfix branch
+
+#Trigger the workflow manually.
+on:
+  workflow_dispatch:
+    inputs:
+      #Input to select the action.
+      INPUT_ACTION:
+        description: 'Select action'
+        required: true
+        default: build-and-deploy
+        type: choice
+        options:
+          - build
+          - build-and-deploy
+
+#Global environment variables.
+env:
+  INPUT_ACTION: ${{ github.event.inputs.INPUT_ACTION }}
+  VERSION_FILE: package.json
+  PARENT_BRANCH: main
+  RC_TAG: 0 
+  AWS_REGION: ap-southeast-1
+  AWS_USERNAME: AWS
+  ECR_REPOSITORY_URL: 104322896078.dkr.ecr.ap-southeast-1.amazonaws.com
+  ECR_REPOSITORY_GROUP: s3-app
+  ECR_REPOSITORY_NAME: backend
+  COMMIT_USERNAME: github-actions
+  COMMIT_EMAIL: github-actions@github.com
+  DEPLOYMENT_REPOSITORY: Ranuldeepanayake/helm
+  DEPLOYMENT_REPOSITORY_BRANCH: develop
+  DEPLOYMENT_REPOSITORY_PATH: deployment-repo
+  QA_ENVIRONMENT_SOURCE_FILE: env/env-qa
+  QA_ENVIRONMENT_DESTINATION_FILE: environments/s3-app/qa/backend-env.yaml
+  QA_ENVIRONMENT_VALUES_FILE: environments/s3-app/qa/values.yaml
+  DEPLOYMENT_MANIFEST_SERVICE_NAME: backend
+
+#Permissions.
+permissions:
+  contents: write
+
+jobs:
+  create-hotfix-branch:
+
+    runs-on: ubuntu-latest  #Runner label.
+    timeout-minutes: 30     #Timeout against runaway jobs.
+
+    steps:
+        #Checkout the parent branch specifically since we are creating the new one from it.
+      - name: Repository checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.PARENT_BRANCH }}
+          clean: true      #Cleans the workspace before checking out code.
+          fetch-depth: 0   #Required to push back
+
+        #Ensure jq is available. 
+      - name: Install jq 
+        run: sudo apt update && sudo apt install -y jq
+
+        #Check if the version number is in the correct format.
+      - name: Validate version number
+        run: |
+          echo "Version file: ${VERSION_FILE}"
+
+          #Read the version file.
+          VERSION_NUMBER=$(jq -r '.version' ${VERSION_FILE} | tr -d '\n')
+          
+          #Append the version number variable to the array of runtime variables.
+          echo "VERSION_NUMBER=$VERSION_NUMBER" >> $GITHUB_ENV
+          echo "Version number: ${VERSION_NUMBER}"
+          
+          #Allowed patterns.
+          PATTERN="([0-9]+\.[0-9]+\.[0-9]+){1,1}"
+
+          if [[ ! ${VERSION_NUMBER} =~ $PATTERN ]]; then
+            echo "❌ Version number ${VERSION_NUMBER} is inconsistent with the format. Exiting!"
+            echo "Allowed formats: x.x.x"
+            exit 1
+          else
+            echo "✅ Version number ${VERSION_NUMBER} is consistent with the format"
+          fi
+
+        #Read and increment the patch version.
+      - name: Increment the patch version
+        run: |
+          #Read the version number.
+          VERSION_MAJOR=$(echo ${VERSION_NUMBER} | awk -F '.' '{print $1}' | tr -d '\n')
+          VERSION_MINOR=$(echo ${VERSION_NUMBER} | awk -F '.' '{print $2}' | tr -d '\n')
+          VERSION_PATCH=$(echo ${VERSION_NUMBER} | awk -F '.' '{print $3}' | tr -d '\n')
+
+          echo "Version major: $VERSION_MAJOR"
+          echo "Version minor: $VERSION_MINOR"
+          echo "Version patch: $VERSION_PATCH"
+
+          #Increment the patch version.
+          VERSION_NUMBER="$VERSION_MAJOR.$VERSION_MINOR.$((VERSION_PATCH + 1))"
+          echo "VERSION_NUMBER=$VERSION_NUMBER" >> $GITHUB_ENV
+          echo "Incremented version number: ${VERSION_NUMBER}"
+
+        #Prepare the new branch name with the necessary appends.
+      - name: Prepare hotfix branch name
+        run: | 
+          #Append the necessary components.
+          NEW_BRANCH_NAME="hotfix/${VERSION_NUMBER}"
+          echo "NEW_BRANCH_NAME=$NEW_BRANCH_NAME" >> $GITHUB_ENV
+          echo "New branch name: ${NEW_BRANCH_NAME}"
+       
+        #Create the new branch from the parent branch.
+      - name: Create hotfix branch
+        run: |
+          git checkout -b ${NEW_BRANCH_NAME}
+
+        #Append the release candidate tag to the version file of the new branch.
+      - name: Append release candidate tag
+        run: |
+          RC_VERSION="${VERSION_NUMBER}-rc.${RC_TAG}"
+          echo "RC_VERSION=$RC_VERSION" >> $GITHUB_ENV
+          echo "Prepared release candidate version: ${RC_VERSION}"
+
+          #Write the new version to the version file.
+          jq ".version = \"${RC_VERSION}\"" ${VERSION_FILE} > temp.json && mv temp.json ${VERSION_FILE}
+
+          RC_VERSION_READ_BACK=$(jq -r '.version' ${VERSION_FILE} | tr -d '\n')
+          echo "Written release candidate version: $RC_VERSION_READ_BACK"
+
+          #Validate written changes.
+          if [[ ! $RC_VERSION_READ_BACK =~ $RC_VERSION ]]; then
+            echo "❌ Release candidate version not written correctly to the version file. Exiting!"
+            exit 1
+          else
+            echo "✅ Release candidate version written correctly to the version file"
+          fi
+
+        #Push the new branch to remote.
+      - name: Push hotfix branch
+        run: |
+          git config user.name ${COMMIT_USERNAME} 
+          git config user.email ${COMMIT_EMAIL}
+
+          git add ${VERSION_FILE}
+          git commit --allow-empty -m "Pipeline (hotfix branch creation): created a hotfix branch ${NEW_BRANCH_NAME} with version ${RC_VERSION}"
+
+          #Create a git tag.
+          git tag -a ${RC_VERSION} -m "Hotfix release candidate tag ${RC_VERSION}"
+          echo "Tags: $(git tag -l)"
+
+          #Push the branch.
+          git push --set-upstream origin ${NEW_BRANCH_NAME}
+
+          #Push the tag.
+          git push origin ${RC_VERSION}
+
+        #Prepare the image tag with the necessary appends.
+      - name: Prepare image tag
+        run: | 
+          #Append the time stamp variable to the array of runtime variables.
+          BUILD_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')
+          echo "BUILD_TIMESTAMP=$BUILD_TIMESTAMP" >> $GITHUB_ENV
+          echo "Build timestamp: ${BUILD_TIMESTAMP}"
+
+          #Append the commit digest.
+          DIGEST_SHA=COMMITSHA_$(echo "${GITHUB_SHA}" | cut -c1-8)
+          echo "DIGEST_SHA=$DIGEST_SHA" >> $GITHUB_ENV
+          echo "Digest (SHA): ${DIGEST_SHA}"
+
+          #RC_VERSION is the full version number set at a previous stage.
+          IMAGE_TAG=${RC_VERSION}-HOTFIX-SNAPSHOT-${BUILD_TIMESTAMP}-${DIGEST_SHA}
+
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "Image tag: ${IMAGE_TAG}"
+
+        #Configure the artifact repository credentials.
+      - name: Configure artifact repository credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+        #Log in to the artifact repository (private).
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+        #Log in to the artifact repository (public).
+      # - name: Login to the artifact repository
+      #   run: |
+      #     aws ecr-public get-login-password --region ${AWS_REGION} | docker login --username ${AWS_USERNAME} --password-stdin ${ECR_REPOSITORY_URL}
+
+        #Build the image.
+      - name: Build image
+        run: |
+          echo "Image name: ${ECR_REPOSITORY_URL}/${ECR_REPOSITORY_GROUP}/${ECR_REPOSITORY_NAME}:${IMAGE_TAG}"
+          docker build -t ${ECR_REPOSITORY_URL}/${ECR_REPOSITORY_GROUP}/${ECR_REPOSITORY_NAME}:${IMAGE_TAG} .
+
+        #Push the built image to an artifact repository.
+      - name: Push image to artifact repository
+        run: |
+          docker push ${ECR_REPOSITORY_URL}/${ECR_REPOSITORY_GROUP}/${ECR_REPOSITORY_NAME}:${IMAGE_TAG}
+
+      ###############################################
+      #Deployment. 
+      ###############################################
+      #It is better not to copy the .env file if the deployment option has not been selected, since a change in the .env would trigger a deployment even 
+      #which would contradict the intention of the user who selected the build option only. Therefore, only copy the .env file if the buil-and-deploy option is selected.
+
+      #Checkout the gitops repository.
+      - name: Checkout the deployment repository
+        if: ${{ env.INPUT_ACTION == 'build-and-deploy' }}
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.DEPLOYMENT_REPOSITORY }}
+          ref: ${{ env.DEPLOYMENT_REPOSITORY_BRANCH }}
+          ssh-key: ${{ secrets.DEPLOYMENT_REPOSITORY_SSH_PRIVATE_KEY }}
+          path: ${{ env.DEPLOYMENT_REPOSITORY_PATH }}
+          clean: true      #Cleans the workspace before checking out code.
+          fetch-depth: 0   #Required to push back
+
+        #Copy the .env file to the deployment repository.
+      - name: Copy the .env file to the deployment repository
+        if: ${{ env.INPUT_ACTION == 'build-and-deploy' }}
+        run: |
+          cp ${QA_ENVIRONMENT_SOURCE_FILE} ${DEPLOYMENT_REPOSITORY_PATH}/${QA_ENVIRONMENT_DESTINATION_FILE}
+          cd ${DEPLOYMENT_REPOSITORY_PATH}
+
+          #Verify the change.
+          if [[ -f "${QA_ENVIRONMENT_DESTINATION_FILE}" ]]; then
+            echo "✅ .env file exists in the destination"
+          else
+            echo "❌ .env file does not exist in the destination!"
+            exit 1
+          fi
+
+        #Change the image tag in the deployment repository.
+      - name: Update the image tag in the deployment repository
+        if: ${{ env.INPUT_ACTION == 'build-and-deploy' }}
+        uses: mikefarah/yq@v4.44.1
+        with:
+          cmd: |
+            cd ${DEPLOYMENT_REPOSITORY_PATH}
+            yq -i '(.containers[] | select(.name == env(DEPLOYMENT_MANIFEST_SERVICE_NAME)) | .tag) = env(IMAGE_TAG)' "${QA_ENVIRONMENT_VALUES_FILE}"
+
+            #Verify the change.
+            TAG_READ_BACK=$(yq '.containers[] | select(.name == env(DEPLOYMENT_MANIFEST_SERVICE_NAME)) | .tag' "${QA_ENVIRONMENT_VALUES_FILE}")
+            echo "Tag read back: $TAG_READ_BACK"
+
+            if [[ "$TAG_READ_BACK" == "${IMAGE_TAG}" ]]; then
+              echo "✅ Image tag updated successfully"
+            else
+              echo "❌ Image tag update failed!"
+              exit 1
+            fi
+
+        #Commit and push the change to the deployment repository.
+      - name: Commit and push to the deployment repository
+        if: ${{ env.INPUT_ACTION == 'build-and-deploy' }}
+        run: |
+          cd ${DEPLOYMENT_REPOSITORY_PATH}
+
+          git config user.name ${COMMIT_USERNAME} 
+          git config user.email ${COMMIT_EMAIL}
+
+          git add ${QA_ENVIRONMENT_VALUES_FILE};
+          git add ${QA_ENVIRONMENT_DESTINATION_FILE};
+          git commit -m "Pipeline (helm): replaced the image tag with ${IMAGE_TAG} and the .env file" || echo "No changes to commit"
+
+          git push
