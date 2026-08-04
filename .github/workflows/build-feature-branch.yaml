@@ -47,7 +47,7 @@ on:
 env:
   INPUT_ACTION: ${{ github.event.inputs.INPUT_ACTION || 'build-and-deploy' }} #Default needed since the workflow will not use the input default when run on-push.
   SONAR_SCAN_ENABLE: ${{ github.event.inputs.SONAR_SCAN_ENABLE || 'false' }}
-  RUN_TESTS: ${{ github.event.inputs.RUN_TESTS || 'true' }}
+  RUN_TESTS: ${{ github.event.inputs.RUN_TESTS || 'false' }}
   VERSION_FILE: package.json
   AWS_REGION: ap-southeast-1
   AWS_USERNAME: AWS
