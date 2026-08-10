@@ -14,30 +14,51 @@ A simple React application for interacting with the S3 image API in the backend 
 - Delete all images from a dedicated protected page
 - Show a timestamped activity log in the browser
 
-## Setup
+## Requirements
+
+- Node.js 18+ for local development
+- A running instance of the backend API 
+- Docker, optional
+
+## Environment
+The frontend uses Vite and proxies API calls to the backend. You can configure the UI port and backend target with environment variables.
+Copy the sample file, then replace the placeholder values:
+
+```bash
+cp .env.example .env
+```
+
+## Local Development
+Install dependencies:
+
 ```bash
 npm install
+```
+
+Start the API with reloads:
+
+```bash
 npm run dev
 ```
 
-The frontend uses Vite and proxies API calls to the backend. You can configure the UI port and backend target with environment variables:
+Or start it normally:
 
 ```bash
-VITE_UI_PORT=3300 VITE_API_TARGET=http://localhost:3100 npm run dev
+npm start
 ```
 
 ## Docker
-Build and run the frontend container:
+Build and run
 
 ```bash
 docker build -t s3-app-frontend .
-docker run -p 3300:3300 s3-app-frontend
+docker run -p 3300:3300 --env-file .env s3-app-frontend
 ```
 
-You can also start the frontend with the backend using Docker Compose:
+Use Docker Compose (builds and deploys both the backend and frontend):
 
 ```bash
-docker compose up --build
+docker compose up -d --build
 ```
 
 ## Notes
