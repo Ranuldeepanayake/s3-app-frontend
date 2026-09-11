@@ -1,5 +1,5 @@
 env:
   frontend:
     VITE_UI_PORT: 3300
-    VITE_API_TARGET: http://qa.api.s3-app.ranul.click
+    VITE_API_TARGET: http://api.qa.s3-app.ranul.click
     VITE_MAX_IMAGE_SIZE_BYTES: 5242880
