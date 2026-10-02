@@ -352,6 +352,72 @@ img {
   font-size: 0.92rem;
 }
 
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.health-status {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 54px;
+  padding: 10px 12px;
+  border: 1px solid #d8e0ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.health-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.health-status.up .health-status-dot {
+  background: #14835b;
+}
+
+.health-status.down .health-status-dot {
+  background: #dc2626;
+}
+
+.health-status-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.health-status-value {
+  text-transform: capitalize;
+}
+
+.health-status.up .health-status-value {
+  color: #126b4b;
+}
+
+.health-status.down .health-status-value {
+  color: #b91c1c;
+}
+
+.health-details {
+  margin-top: 16px;
+}
+
+.health-details summary {
+  cursor: pointer;
+  color: #334155;
+  font-weight: 700;
+}
+
+.health-details .json-output {
+  margin-bottom: 0;
+}
+
 @media (max-width: 850px) {
   .navbar {
     position: static;

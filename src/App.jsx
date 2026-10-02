@@ -125,6 +125,19 @@ const AuthNotice = ({ token, children }) => {
   );
 };
 
+const HealthStatus = ({ name, status }) => {
+  const normalizedStatus = status === 'up' ? 'up' : status === 'down' ? 'down' : 'unknown';
+  const label = normalizedStatus === 'unknown' ? 'Not reported' : normalizedStatus;
+
+  return (
+    <div className={`health-status ${normalizedStatus}`}>
+      <span className="health-status-dot" aria-hidden="true" />
+      <span className="health-status-name">{name}</span>
+      <strong className="health-status-value">{label}</strong>
+    </div>
+  );
+};
+
 function App() {
   const [page, setPage] = useState(getCurrentPage);
   const [images, setImages] = useState([]);
@@ -376,9 +389,33 @@ function App() {
 
     try {
       setHealthStatus('Checking protected backend health...');
-      const result = await requestJson(`${API_BASE}/api/health/ready`);
+      const url = `${API_BASE}/api/health/ready`;
+      appendLog('INFO', 'UI', `Request GET ${url}`);
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${authToken}`
+        }
+      });
+      const bodyText = await response.text();
+      const contentType = response.headers.get('content-type') || '';
+      appendLog('INFO', 'UI', `Response GET ${url} -> ${response.status} ${contentType}`);
+
+      if (!contentType.includes('application/json')) {
+        throw new Error(getMessageFromErrorBody(bodyText, `Health check failed with status ${response.status}`));
+      }
+
+      const result = bodyText ? JSON.parse(bodyText) : {};
+      const hasDependencyStatuses = result.mongodb || result.s3 || result.postgresql;
+      if (!response.ok && !hasDependencyStatuses) {
+        throw new Error(result.message || `Health check failed with status ${response.status}`);
+      }
+
       setHealthResult(result);
-      setHealthStatus('Protected health check completed.');
+      const isHealthy = response.ok && result.status === 'ok';
+      setHealthStatus(isHealthy
+        ? 'All dependencies are healthy.'
+        : `Backend is degraded (HTTP ${response.status}). Review the dependency statuses below.`);
+      appendLog(isHealthy ? 'INFO' : 'WARN', 'HEALTH', `Backend health status: ${result.status || 'unknown'}`);
     } catch (error) {
       setHealthResult(null);
       setHealthStatus(`Unable to load protected health data: ${error.message}`);
@@ -527,19 +564,19 @@ function App() {
   const renderLoginPage = () => (
     <section className="page-heading narrow-page">
       <h1>Login</h1>
-      <p>Authenticate with the backend to access JWT-protected routes.</p>
+      <p>Sign in with an application account stored in the PostgreSQL database to access protected routes.</p>
 
       <div className="panel">
         <form onSubmit={handleLogin} className="form-stack">
           <label>
-            Username
+            Application username
             <input type="text" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
           </label>
           <label>
-            Password
+            Application password
             <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" />
           </label>
-          <button type="submit">Login</button>
+          <button type="submit">Sign in</button>
           <p className="helper-text">{loginStatus}</p>
         </form>
       </div>
@@ -549,7 +586,7 @@ function App() {
   const renderHealthPage = () => (
     <section className="page-heading">
       <h1>Protected Health Check</h1>
-      <p>Query the backend readiness endpoint that requires a valid JWT.</p>
+      <p>Check MongoDB, S3, and PostgreSQL connectivity through the protected readiness endpoint.</p>
 
       <AuthNotice token={authToken}>
         You are not authenticated yet. Go to Login, sign in, then return here to check backend readiness.
@@ -561,7 +598,20 @@ function App() {
           <button type="button" onClick={handleHealthCheck} disabled={!authToken}>Check health</button>
         </div>
         {healthStatus ? <p className="helper-text">{healthStatus}</p> : null}
-        {healthResult ? <pre className="json-output">{JSON.stringify(healthResult, null, 2)}</pre> : null}
+        {healthResult ? (
+          <>
+            <div className={`health-grid overall-${healthResult.status === 'ok' ? 'up' : 'down'}`} aria-live="polite">
+              <HealthStatus name="Overall" status={healthResult.status === 'ok' ? 'up' : 'down'} />
+              <HealthStatus name="MongoDB" status={healthResult.mongodb?.status} />
+              <HealthStatus name="S3" status={healthResult.s3?.status} />
+              <HealthStatus name="PostgreSQL" status={healthResult.postgresql?.status} />
+            </div>
+            <details className="health-details">
+              <summary>Response details</summary>
+              <pre className="json-output">{JSON.stringify(healthResult, null, 2)}</pre>
+            </details>
+          </>
+        ) : null}
       </div>
     </section>
   );
