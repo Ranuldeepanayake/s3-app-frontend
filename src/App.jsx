@@ -41,6 +41,15 @@ const getCurrentPage = () => {
   return 'home';
 };
 
+const getCookie = (name) => document.cookie
+  .split('; ')
+  .find((cookie) => cookie.startsWith(`${name}=`))
+  ?.split('=')[1];
+
+const setCookie = (name, value) => {
+  document.cookie = `${name}=${value}; Max-Age=31536000; Path=/; SameSite=Lax`;
+};
+
 const formatFileSize = (sizeInBytes) => {
   if (!Number.isFinite(sizeInBytes) || sizeInBytes <= 0) {
     return '0 KB';
@@ -160,12 +169,36 @@ function App() {
   const [trafficStatus, setTrafficStatus] = useState(null);
   const [trafficMessage, setTrafficMessage] = useState('');
   const [restartStatus, setRestartStatus] = useState('');
+  const [theme, setTheme] = useState(() => getCookie('s3-app-theme') || 'light');
+  const [publicHealthResult, setPublicHealthResult] = useState(null);
 
   useEffect(() => {
     const handlePopState = () => setPage(getCurrentPage());
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    setCookie('s3-app-theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    if (page !== 'health') {
+      return undefined;
+    }
+
+    fetch(`${API_BASE}/api/health/live`)
+      .then(async (response) => {
+        const data = await response.json();
+        if (data?.mongodb || data?.s3 || data?.postgresql) {
+          setPublicHealthResult(data);
+        }
+      })
+      .catch(() => setPublicHealthResult(null));
+
+    return undefined;
+  }, [page]);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/version`)
@@ -285,6 +318,10 @@ function App() {
 
   const handleUpload = async (event) => {
     event.preventDefault();
+    if (!authToken) {
+      appendLog('WARN', 'AUTH', 'Login is required before uploading images');
+      return;
+    }
     if (!uploadFile) {
       appendLog('WARN', 'UI', 'No file selected for upload');
       return;
@@ -316,6 +353,10 @@ function App() {
 
   const handleUpdate = async (event) => {
     event.preventDefault();
+    if (!authToken) {
+      appendLog('WARN', 'AUTH', 'Login is required before updating images');
+      return;
+    }
     if (!selectedImage) {
       appendLog('WARN', 'UI', 'Select an image before updating');
       return;
@@ -617,8 +658,8 @@ function App() {
         <div>
           <h2>Upload a new image</h2>
           <form onSubmit={handleUpload} className="form-stack">
-            <input type="file" accept="image/*" onChange={(event) => setUploadFile(event.target.files?.[0] || null)} />
-            <button type="submit">Upload</button>
+            <input className="file-picker" type="file" accept="image/*" onChange={(event) => setUploadFile(event.target.files?.[0] || null)} disabled={!authToken} />
+            <button type="submit" className="primary-button" disabled={!authToken}>Upload</button>
           </form>
           <p className="helper-text">Maximum upload size: {formatFileSize(MAX_IMAGE_SIZE_BYTES)}</p>
         </div>
@@ -626,8 +667,8 @@ function App() {
         <div>
           <h2>Update selected image</h2>
           <form onSubmit={handleUpdate} className="form-stack">
-            <input type="file" accept="image/*" onChange={(event) => setUpdateFile(event.target.files?.[0] || null)} />
-            <button type="submit">Update</button>
+            <input className="file-picker" type="file" accept="image/*" onChange={(event) => setUpdateFile(event.target.files?.[0] || null)} disabled={!authToken} />
+            <button type="submit" className="primary-button" disabled={!authToken}>Update</button>
           </form>
         </div>
       </section>
@@ -639,17 +680,17 @@ function App() {
       <h1>Login</h1>
       <p>Sign in with an application account stored in the PostgreSQL database to access protected routes.</p>
 
-      <div className="panel">
+      <div className="panel login-panel">
         <form onSubmit={handleLogin} className="form-stack">
           <label>
             Application username
-            <input type="text" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
+            <input className="login-input" type="text" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
           </label>
           <label>
             Application password
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" />
+            <input className="login-input" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" />
           </label>
-          <button type="submit">Sign in</button>
+          <button type="submit" className="primary-button login-submit">Sign in</button>
           <p className="helper-text">{loginStatus}</p>
         </form>
       </div>
@@ -671,18 +712,20 @@ function App() {
           <button type="button" onClick={handleHealthCheck} disabled={!authToken}>Check health</button>
         </div>
         {healthStatus ? <p className="helper-text">{healthStatus}</p> : null}
-        {healthResult ? (
+        {publicHealthResult || healthResult ? (
           <>
-            <div className={`health-grid overall-${healthResult.status === 'ok' ? 'up' : 'down'}`} aria-live="polite">
-              <HealthStatus name="Overall" status={healthResult.status === 'ok' ? 'up' : 'down'} />
-              <HealthStatus name="MongoDB" status={healthResult.mongodb?.status} />
-              <HealthStatus name="S3" status={healthResult.s3?.status} />
-              <HealthStatus name="PostgreSQL" status={healthResult.postgresql?.status} />
+            <div className={`health-grid overall-${(healthResult || publicHealthResult).status === 'ok' ? 'up' : 'down'}`} aria-live="polite">
+              <HealthStatus name="Overall" status={(healthResult || publicHealthResult).status === 'ok' ? 'up' : 'down'} />
+              <HealthStatus name="MongoDB" status={(healthResult || publicHealthResult).mongodb?.status} />
+              <HealthStatus name="S3" status={(healthResult || publicHealthResult).s3?.status} />
+              <HealthStatus name="PostgreSQL" status={(healthResult || publicHealthResult).postgresql?.status} />
             </div>
-            <details className="health-details">
-              <summary>Response details</summary>
-              <pre className="json-output">{JSON.stringify(healthResult, null, 2)}</pre>
-            </details>
+            {healthResult ? (
+              <details className="health-details">
+                <summary>Protected response details</summary>
+                <pre className="json-output">{JSON.stringify(healthResult, null, 2)}</pre>
+              </details>
+            ) : <p className="helper-text">Component status is available without authentication. Sign in to view protected infrastructure details.</p>}
           </>
         ) : null}
       </div>
@@ -778,16 +821,19 @@ function App() {
         <button type="button" className="brand-button" onClick={() => navigate('home')}>S3 Image Manager</button>
         <div className="nav-links">
           <button type="button" className={page === 'home' ? 'active' : ''} onClick={() => navigate('home')}>Home</button>
-          <button type="button" className={page === 'login' ? 'active' : ''} onClick={() => navigate('login')}>Login</button>
           <button type="button" className={page === 'health' ? 'active' : ''} onClick={() => navigate('health')}>Health</button>
           <button type="button" className={page === 'deleteAll' ? 'active' : ''} onClick={() => navigate('deleteAll')}>Delete All</button>
         </div>
+        <div className="nav-spacer" />
+        <span className="app-version">Backend v{backendVersion}</span>
+        <button type="button" className="theme-toggle" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
+          {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+        </button>
         <div className="auth-chip">
           <span className={authToken ? 'status-dot authenticated' : 'status-dot'} aria-hidden="true" />
           <span>{authToken ? 'Authenticated' : 'Signed out'}</span>
-          {authToken ? <button type="button" className="link-button" onClick={logout}>Logout</button> : null}
+          {authToken ? <button type="button" className="nav-action logout-button" onClick={logout}>Logout</button> : <button type="button" className="nav-action login-button" onClick={() => navigate('login')}>Login</button>}
         </div>
-        <span className="app-version">Backend v{backendVersion}</span>
       </nav>
 
       {renderPage()}

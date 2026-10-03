@@ -5,9 +5,19 @@
   color: #172033;
 }
 
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  background: #111827;
+  color: #e5e7eb;
+}
+
 body {
   margin: 0;
   background: #f5f7fb;
+}
+
+:root[data-theme='dark'] body {
+  background: #111827;
 }
 
 * {
@@ -23,9 +33,15 @@ button {
   cursor: pointer;
   border: none;
   padding: 9px 14px;
-  border-radius: 8px;
+  border-radius: 7px;
   background: #2563eb;
   color: white;
+  transition: background 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 12px rgba(37, 99, 235, 0.22);
 }
 
 button:disabled {
@@ -40,6 +56,27 @@ input {
   border: 1px solid #b8c2d6;
   background: white;
   color: #172033;
+}
+
+input:focus,
+button:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.25);
+  outline-offset: 2px;
+}
+
+input[type='file'] {
+  padding: 6px;
+}
+
+input[type='file']::file-selector-button {
+  margin-right: 10px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: #e8edf7;
+  color: #172033;
+  cursor: pointer;
+  font-weight: 700;
 }
 
 a {
@@ -82,6 +119,10 @@ code {
   box-shadow: 0 12px 30px rgba(31, 41, 55, 0.08);
 }
 
+.nav-spacer {
+  flex: 1;
+}
+
 .brand-button,
 .nav-links button,
 .link-button,
@@ -111,6 +152,29 @@ code {
 .secondary-button {
   border-color: #b8c2d6;
   background: #e8edf7;
+}
+
+.nav-action,
+.theme-toggle {
+  border: 1px solid transparent;
+  padding: 7px 11px;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.login-button {
+  background: #2563eb;
+  color: white;
+}
+
+.logout-button {
+  background: #fff1f2;
+  color: #b91c1c;
+}
+
+.theme-toggle {
+  background: #172033;
+  color: #ffffff;
 }
 
 .auth-chip {
@@ -149,6 +213,12 @@ code {
   text-decoration: underline;
 }
 
+.primary-button {
+  min-height: 42px;
+  padding: 10px 18px;
+  font-weight: 700;
+}
+
 .page-heading {
   margin-bottom: 18px;
 }
@@ -182,6 +252,23 @@ code {
   padding: 16px;
   margin-bottom: 16px;
   box-shadow: 0 8px 24px rgba(31, 41, 55, 0.06);
+}
+
+.login-panel {
+  max-width: 520px;
+  padding: 28px;
+  box-shadow: 0 18px 42px rgba(31, 41, 55, 0.12);
+}
+
+.login-input {
+  min-height: 46px;
+  padding: 12px 14px;
+  border-radius: 7px;
+  font-size: 1rem;
+}
+
+.login-submit {
+  margin-top: 8px;
 }
 
 .panel h2 {
@@ -494,6 +581,10 @@ img {
     justify-content: flex-start;
   }
 
+  .nav-spacer {
+    display: none;
+  }
+
   .grid,
   .forms-panel,
   .health-control-grid {
@@ -507,4 +598,48 @@ img {
   .app-version {
     align-self: flex-start;
   }
+}
+
+:root[data-theme='dark'] .navbar,
+:root[data-theme='dark'] .panel {
+  border-color: #374151;
+  background: #1f2937;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
+}
+
+:root[data-theme='dark'] input,
+:root[data-theme='dark'] .image-list button,
+:root[data-theme='dark'] .health-status,
+:root[data-theme='dark'] .image-placeholder {
+  border-color: #4b5563;
+  background: #111827;
+  color: #e5e7eb;
+}
+
+:root[data-theme='dark'] .auth-chip,
+:root[data-theme='dark'] code,
+:root[data-theme='dark'] .secondary-button,
+:root[data-theme='dark'] input[type='file']::file-selector-button {
+  background: #374151;
+  color: #e5e7eb;
+}
+
+:root[data-theme='dark'] .nav-links button,
+:root[data-theme='dark'] .brand-button,
+:root[data-theme='dark'] .secondary-button {
+  color: #e5e7eb;
+}
+
+:root[data-theme='dark'] .helper-text,
+:root[data-theme='dark'] .page-heading p,
+:root[data-theme='dark'] .image-list span,
+:root[data-theme='dark'] .metadata-list dt,
+:root[data-theme='dark'] .app-version,
+:root[data-theme='dark'] .app-footer {
+  color: #9ca3af;
+}
+
+:root[data-theme='dark'] .logout-button {
+  background: #4c1d2b;
+  color: #fecdd3;
 }
