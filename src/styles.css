@@ -25,7 +25,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -54,6 +55,16 @@ input {
   padding: 9px;
   border-radius: 8px;
   border: 1px solid #b8c2d6;
+  background: white;
+  color: #172033;
+}
+
+select {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px;
+  border: 1px solid #b8c2d6;
+  border-radius: 7px;
   background: white;
   color: #172033;
 }
@@ -608,6 +619,7 @@ img {
 }
 
 :root[data-theme='dark'] input,
+:root[data-theme='dark'] select,
 :root[data-theme='dark'] .image-list button,
 :root[data-theme='dark'] .health-status,
 :root[data-theme='dark'] .image-placeholder {

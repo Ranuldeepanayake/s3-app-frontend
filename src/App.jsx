@@ -166,6 +166,9 @@ function App() {
   const [backendVersion, setBackendVersion] = useState('Loading...');
   const [trafficInterval, setTrafficInterval] = useState('1000');
   const [trafficParallelQueries, setTrafficParallelQueries] = useState('1');
+  const [trafficWorkload, setTrafficWorkload] = useState('light');
+  const [scratchRows, setScratchRows] = useState('100000');
+  const [scratchBlobBytes, setScratchBlobBytes] = useState('4096');
   const [trafficStatus, setTrafficStatus] = useState(null);
   const [trafficMessage, setTrafficMessage] = useState('');
   const [restartStatus, setRestartStatus] = useState('');
@@ -518,7 +521,10 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           intervalMs: trafficInterval,
-          parallelQueries: trafficParallelQueries
+          parallelQueries: trafficParallelQueries,
+          workload: trafficWorkload,
+          scratchRows,
+          scratchBlobBytes
         })
       });
       setTrafficStatus(result);
@@ -763,6 +769,25 @@ function App() {
               Parallel queries
               <input type="text" inputMode="numeric" value={trafficParallelQueries} onChange={(event) => setTrafficParallelQueries(event.target.value)} />
             </label>
+            <label>
+              Workload
+              <select value={trafficWorkload} onChange={(event) => setTrafficWorkload(event.target.value)}>
+                <option value="light">Light query</option>
+                <option value="scratch">Scratch transaction</option>
+              </select>
+            </label>
+            {trafficWorkload === 'scratch' ? (
+              <>
+                <label>
+                  Scratch rows
+                  <input type="text" inputMode="numeric" value={scratchRows} onChange={(event) => setScratchRows(event.target.value)} />
+                </label>
+                <label>
+                  Blob bytes per row
+                  <input type="text" inputMode="numeric" value={scratchBlobBytes} onChange={(event) => setScratchBlobBytes(event.target.value)} />
+                </label>
+              </>
+            ) : null}
           </div>
           <div className="actions">
             <button type="button" onClick={handleStartTraffic} disabled={!authToken || trafficStatus?.running}>Start traffic</button>
