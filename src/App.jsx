@@ -388,6 +388,11 @@ function App() {
   };
 
   const handleDelete = async () => {
+    if (!authToken) {
+      appendLog('WARN', 'AUTH', 'Login is required before deleting images');
+      return;
+    }
+
     if (!selectedImage) {
       return;
     }
@@ -645,7 +650,7 @@ function App() {
                 </div>
               )}
               <div className="actions">
-                <button type="button" className="danger-button" onClick={handleDelete}>Delete image</button>
+                <button type="button" className="danger-button" onClick={handleDelete} disabled={!authToken}>Delete image</button>
               </div>
             </>
           ) : (
