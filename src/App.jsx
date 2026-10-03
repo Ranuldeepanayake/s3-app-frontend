@@ -154,11 +154,29 @@ function App() {
   const [healthResult, setHealthResult] = useState(null);
   const [healthStatus, setHealthStatus] = useState('');
   const [deleteAllStatus, setDeleteAllStatus] = useState('');
+  const [backendVersion, setBackendVersion] = useState('Loading...');
+  const [trafficInterval, setTrafficInterval] = useState('1000');
+  const [trafficParallelQueries, setTrafficParallelQueries] = useState('1');
+  const [trafficStatus, setTrafficStatus] = useState(null);
+  const [trafficMessage, setTrafficMessage] = useState('');
+  const [restartStatus, setRestartStatus] = useState('');
 
   useEffect(() => {
     const handlePopState = () => setPage(getCurrentPage());
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/version`)
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.message || 'Unable to load backend version.');
+        }
+        setBackendVersion(data.version || 'Unknown');
+      })
+      .catch((error) => setBackendVersion(`Unavailable (${error.message})`));
   }, []);
 
   const appendLog = (level, component, message) => {
@@ -423,6 +441,61 @@ function App() {
     }
   };
 
+  const refreshTrafficStatus = async () => {
+    if (!authToken) {
+      return;
+    }
+
+    try {
+      const result = await requestJson(`${API_BASE}/api/health/traffic`);
+      setTrafficStatus(result);
+    } catch (error) {
+      setTrafficMessage(`Unable to load traffic status: ${error.message}`);
+    }
+  };
+
+  const handleStartTraffic = async () => {
+    try {
+      setTrafficMessage('Starting PostgreSQL test traffic...');
+      const result = await requestJson(`${API_BASE}/api/health/traffic/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          intervalMs: trafficInterval,
+          parallelQueries: trafficParallelQueries
+        })
+      });
+      setTrafficStatus(result);
+      setTrafficMessage('PostgreSQL test traffic is running.');
+    } catch (error) {
+      setTrafficMessage(`Unable to start test traffic: ${error.message}`);
+    }
+  };
+
+  const handleStopTraffic = async () => {
+    try {
+      setTrafficMessage('Stopping PostgreSQL test traffic...');
+      const result = await requestJson(`${API_BASE}/api/health/traffic/stop`, { method: 'POST' });
+      setTrafficStatus(result);
+      setTrafficMessage('PostgreSQL test traffic stopped.');
+    } catch (error) {
+      setTrafficMessage(`Unable to stop test traffic: ${error.message}`);
+    }
+  };
+
+  const handleRestart = async () => {
+    if (!window.confirm('Restart the backend service now? The service must have a supervisor to start again.')) {
+      return;
+    }
+
+    try {
+      const result = await requestJson(`${API_BASE}/api/health/restart`, { method: 'POST' });
+      setRestartStatus(result.message || 'Backend restart requested.');
+    } catch (error) {
+      setRestartStatus(`Unable to request backend restart: ${error.message}`);
+    }
+  };
+
   const handleDeleteAll = async () => {
     if (!authToken) {
       setDeleteAllStatus('Please log in before deleting all images.');
@@ -613,6 +686,55 @@ function App() {
           </>
         ) : null}
       </div>
+
+      <div className="health-control-grid">
+        <section className="panel">
+          <div className="panel-heading">
+            <h2>PostgreSQL test traffic</h2>
+            <span className={`traffic-indicator ${trafficStatus?.running ? 'running' : ''}`}>
+              {trafficStatus?.running ? 'Running' : 'Stopped'}
+            </span>
+          </div>
+          <p className="helper-text">Generate lightweight parallel database queries for performance monitoring.</p>
+          <div className="traffic-form">
+            <label>
+              Interval (milliseconds)
+              <input type="text" inputMode="numeric" value={trafficInterval} onChange={(event) => setTrafficInterval(event.target.value)} />
+            </label>
+            <label>
+              Parallel queries
+              <input type="text" inputMode="numeric" value={trafficParallelQueries} onChange={(event) => setTrafficParallelQueries(event.target.value)} />
+            </label>
+          </div>
+          <div className="actions">
+            <button type="button" onClick={handleStartTraffic} disabled={!authToken || trafficStatus?.running}>Start traffic</button>
+            <button type="button" className="secondary-button" onClick={handleStopTraffic} disabled={!authToken || !trafficStatus?.running}>Stop traffic</button>
+            <button type="button" className="secondary-button" onClick={refreshTrafficStatus} disabled={!authToken}>Refresh status</button>
+          </div>
+          {trafficMessage ? <p className="helper-text">{trafficMessage}</p> : null}
+          {trafficStatus ? (
+            <dl className="metadata-list traffic-metadata">
+              <div><dt>Queries succeeded</dt><dd>{trafficStatus.successfulQueries}</dd></div>
+              <div><dt>Queries failed</dt><dd>{trafficStatus.failedQueries}</dd></div>
+              <div><dt>Runs</dt><dd>{trafficStatus.totalRuns}</dd></div>
+              <div><dt>Last run</dt><dd>{formatDateTime(trafficStatus.lastRunAt)}</dd></div>
+            </dl>
+          ) : null}
+        </section>
+
+        <section className="panel">
+          <h2>Backend service</h2>
+          <p className="helper-text">Request a process restart to exercise the normal startup checks and startup logs. A process supervisor must be configured for automatic recovery.</p>
+          <button type="button" className="danger-button" onClick={handleRestart} disabled={!authToken}>Restart backend</button>
+          {restartStatus ? <p className="helper-text">{restartStatus}</p> : null}
+        </section>
+      </div>
+
+      <section className="panel version-panel">
+        <h2>Application version</h2>
+        <p className="version-value">Backend <strong>{healthResult?.version || backendVersion}</strong></p>
+        <p className="helper-text">This value is read from the backend package.json file.</p>
+      </section>
     </section>
   );
 
@@ -665,6 +787,7 @@ function App() {
           <span>{authToken ? 'Authenticated' : 'Signed out'}</span>
           {authToken ? <button type="button" className="link-button" onClick={logout}>Logout</button> : null}
         </div>
+        <span className="app-version">Backend v{backendVersion}</span>
       </nav>
 
       {renderPage()}
@@ -677,6 +800,7 @@ function App() {
           ))}
         </ul>
       </section>
+      <footer className="app-footer">Backend version: {backendVersion}</footer>
     </div>
   );
 }

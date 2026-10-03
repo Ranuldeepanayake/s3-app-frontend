@@ -126,6 +126,12 @@ code {
   white-space: nowrap;
 }
 
+.app-version {
+  color: #53627a;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
 .status-dot {
   width: 10px;
   height: 10px;
@@ -418,6 +424,56 @@ img {
   margin-bottom: 0;
 }
 
+.health-control-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr);
+  gap: 16px;
+}
+
+.traffic-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.traffic-indicator {
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.traffic-indicator.running {
+  color: #126b4b;
+}
+
+.traffic-metadata {
+  margin-top: 16px;
+}
+
+.version-panel {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.version-panel h2,
+.version-panel p {
+  margin: 0;
+}
+
+.version-value {
+  color: #334155;
+}
+
+.app-footer {
+  padding: 4px 0 20px;
+  color: #64748b;
+  font-size: 0.85rem;
+  text-align: right;
+}
+
 @media (max-width: 850px) {
   .navbar {
     position: static;
@@ -439,11 +495,16 @@ img {
   }
 
   .grid,
-  .forms-panel {
+  .forms-panel,
+  .health-control-grid {
     grid-template-columns: 1fr;
   }
 
   .metadata-list {
     grid-template-columns: 1fr;
+  }
+
+  .app-version {
+    align-self: flex-start;
   }
 }
