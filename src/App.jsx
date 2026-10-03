@@ -500,6 +500,16 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    if (page !== 'health' || !authToken) {
+      return undefined;
+    }
+
+    refreshTrafficStatus();
+    const statusTimer = setInterval(refreshTrafficStatus, 2000);
+    return () => clearInterval(statusTimer);
+  }, [page, authToken]);
+
   const handleStartTraffic = async () => {
     try {
       setTrafficMessage('Starting PostgreSQL test traffic...');
@@ -743,7 +753,7 @@ function App() {
               {trafficStatus?.running ? 'Running' : 'Stopped'}
             </span>
           </div>
-          <p className="helper-text">Generate lightweight parallel database queries for performance monitoring.</p>
+          <p className="helper-text">Run read-only synthetic PostgreSQL work that exercises CPU and temporary working memory for performance monitoring. Statistics refresh automatically while this page is open.</p>
           <div className="traffic-form">
             <label>
               Interval (milliseconds)
