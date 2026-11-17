@@ -5,7 +5,7 @@ const runtimeConfig = window.__APP_CONFIG__ || {};
 const API_BASE = runtimeConfig.apiTarget || import.meta.env.VITE_API_TARGET || 'http://localhost:3100';
 const MAX_IMAGE_SIZE_BYTES = Number(runtimeConfig.maxImageSizeBytes || import.meta.env.VITE_MAX_IMAGE_SIZE_BYTES || 5 * 1024 * 1024);
 
-console.info('[FRONTEND-STARTUP]', 'Resolved frontend config', {
+logger.info('STARTUP', 'Frontend configuration loaded', logger.startupConfigSummary({
   apiTarget: API_BASE,
   mode: import.meta.env.MODE,
   base: import.meta.env.BASE_URL,
@@ -13,8 +13,8 @@ console.info('[FRONTEND-STARTUP]', 'Resolved frontend config', {
   prod: import.meta.env.PROD,
   hostname: window.location.hostname,
   port: window.location.port,
-  runtimeConfig
-});
+  maxImageSizeBytes: MAX_IMAGE_SIZE_BYTES
+}), 'configuration_loaded');
 
 const pages = {
   home: '/',
