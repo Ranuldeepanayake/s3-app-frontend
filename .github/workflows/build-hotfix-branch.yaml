@@ -31,6 +31,8 @@ env:
   INPUT_ACTION: ${{ github.event.inputs.INPUT_ACTION || 'build-and-deploy' }} #Default needed since the workflow will not use the input default when run on-push.
   VERSION_FILE: package.json
   AWS_REGION: ap-southeast-1
+  AWS_ROLE_ARN: arn:aws:iam::104322896078:role/CustomRoleGitHubWorkflows
+  AWS_ALLOWED_ACCOUNT_IDS: 104322896078
   AWS_USERNAME: AWS
   ECR_REPOSITORY_URL: 104322896078.dkr.ecr.ap-southeast-1.amazonaws.com
   ECR_REPOSITORY_GROUP: s3-app
@@ -54,6 +56,7 @@ env:
 permissions:
   contents: write
   pull-requests: write
+  id-token: write
 
 jobs:
   build-hotfix-branch:
@@ -169,13 +172,21 @@ jobs:
         echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
         echo "Image tag: ${IMAGE_TAG}"
 
-      #Configure the artifact repository credentials.
-    - name: Configure artifact repository credentials
+    #   #Configure the artifact repository credentials.
+    # - name: Configure artifact repository credentials
+    #   uses: aws-actions/configure-aws-credentials@v5
+    #   with:
+    #     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    #     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    #     aws-region: ${{ env.AWS_REGION }}
+
+      # Authenticate to AWS using OIDC.
+    - name: Configure AWS authentication
       uses: aws-actions/configure-aws-credentials@v5
       with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        role-to-assume: ${{ env.AWS_ROLE_ARN }}
         aws-region: ${{ env.AWS_REGION }}
+        allowed-account-ids: ${{ env.AWS_ALLOWED_ACCOUNT_IDS }}
 
       #Log in to the artifact repository (private).
     - name: Login to Amazon ECR

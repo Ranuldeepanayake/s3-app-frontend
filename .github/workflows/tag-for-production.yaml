@@ -17,6 +17,9 @@ on:
 env:
   INPUT_IMAGE_TAG: ${{ github.event.inputs.INPUT_IMAGE_TAG }}
   AWS_REGION: ap-southeast-1
+  AWS_ROLE_ARN: arn:aws:iam::104322896078:role/CustomRoleGitHubWorkflows
+  AWS_ALLOWED_ACCOUNT_IDS: 104322896078
+  AWS_USERNAME: AWS
   ECR_REPOSITORY_URL: 104322896078.dkr.ecr.ap-southeast-1.amazonaws.com
   ECR_REPOSITORY_GROUP: s3-app
   ECR_REPOSITORY_NAME: backend
@@ -24,6 +27,7 @@ env:
 #Permissions.
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   tag-for-production:
@@ -51,13 +55,50 @@ jobs:
             exit 1          
           fi
 
-        #Log in to the artifact repository.
-      - name: Configure AWS credentials
+      #   #Log in to the artifact repository.
+      # - name: Configure AWS credentials
+      #   uses: aws-actions/configure-aws-credentials@v5
+      #   with:
+      #     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      #     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      #     aws-region: ${{ env.AWS_REGION }}
+
+        # Print only the OIDC claims needed to diagnose the AWS trust-policy match.
+      - name: Diagnose GitHub OIDC claims
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+          from urllib.request import Request, urlopen
+
+          parts = urlsplit(os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"])
+          query = dict(parse_qsl(parts.query))
+          query["audience"] = "sts.amazonaws.com"
+          url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+          request = Request(
+              url,
+              headers={"Authorization": f"Bearer {os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']}"},
+          )
+
+          with urlopen(request) as response:
+              token = json.load(response)["value"]
+
+          encoded_payload = token.split(".")[1]
+          payload = base64.urlsafe_b64decode(encoded_payload + "=" * (-len(encoded_payload) % 4))
+          claims = json.loads(payload)
+          print(f"OIDC sub: {claims.get('sub')!r}")
+          print(f"OIDC aud: {claims.get('aud')!r}")
+          PY
+
+        # Authenticate to AWS using OIDC.
+      - name: Configure AWS authentication
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ env.AWS_ALLOWED_ACCOUNT_IDS }}
 
         #Verify that the AWS CLI is configured correctly.
       - name: Verify AWS CLI
