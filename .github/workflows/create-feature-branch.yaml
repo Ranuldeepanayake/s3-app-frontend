@@ -1,0 +1,108 @@
+#Create a new feature branch from the develop branch.
+
+name: Create feature branch
+
+on:
+  #Enable the workflow to be manually triggered. The workflow must be pushed to the default branch at least once.
+  workflow_dispatch:
+    inputs:
+      INPUT_BRANCH_TYPE:
+        description: 'Select branch type'
+        required: true
+        default: feature
+        type: choice
+        options:
+          - feature
+          - bugfix
+      INPUT_BRANCH_NAME:
+        description: "New branch name"
+        required: true
+
+#Global environment variables.
+env:
+  INPUT_BRANCH_TYPE: ${{ github.event.inputs.INPUT_BRANCH_TYPE }}
+  INPUT_BRANCH_NAME: ${{ github.event.inputs.INPUT_BRANCH_NAME }}
+  VERSION_FILE: package.json
+  PARENT_BRANCH: develop
+
+#Permissions.
+permissions:
+  contents: write
+
+#A job has a sequential list of steps. Several jobs can be run in parallel or chained.
+jobs:
+  create-feature-branch:
+
+    runs-on: ubuntu-latest  #Runner label.
+    timeout-minutes: 30     #Timeout against runaway jobs.
+
+    steps:
+        #Ensure jq is available. 
+      - name: Install jq 
+        run: sudo apt update && sudo apt install -y jq
+
+        #Check the name format of the new branch name input.
+      - name: Validate input branch name
+        run: |
+          echo "Input branch name: ${INPUT_BRANCH_NAME}" 
+
+          #Allowed patterns.
+          PATTERN="([a-z0-9]+)"
+
+          if [[ ! ${INPUT_BRANCH_NAME} =~ $PATTERN ]]; then
+            echo "❌ Invalid branch name: ${INPUT_BRANCH_NAME}"
+            echo "Allowed formats: Lower/upper case alphabetical characters and numbers"
+            exit 1
+          else
+            echo "✅ Branch name is valid"
+          fi
+
+        #Checkout the parent branch specifically since we are creating the new one from it.
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.PARENT_BRANCH }}
+          clean: true      #Cleans the workspace before checking out code.
+          fetch-depth: 0   #Required to push back
+
+        #Check if the version number is in the correct format.
+      - name: Validate version number
+        run: |
+          echo "Version file: ${VERSION_FILE}"
+
+          #Read the version file.
+          VERSION_NUMBER=$(jq -r '.version' ${VERSION_FILE} | tr -d '\n')
+          
+          #Append the version number variable to the array of runtime variables.
+          echo "VERSION_NUMBER=$VERSION_NUMBER" >> $GITHUB_ENV
+          echo "Version number: ${VERSION_NUMBER}"
+          
+          #Allowed patterns.
+          PATTERN="([0-9]+\.[0-9]+\.[0]){1,1}"
+
+          if [[ ! ${VERSION_NUMBER} =~ $PATTERN ]]; then
+            echo "❌ Version number ${VERSION_NUMBER} is inconsistent with the format. Exiting!"
+            echo "Allowed formats: x.x.0"
+            exit 1
+          else
+            echo "✅ Version number ${VERSION_NUMBER} is consistent with the format"
+          fi
+
+        #Prepare the new branch name with the necessary appends.
+      - name: Prepare branch name
+        run: | 
+          #Append the necessary components based on branch type.
+          if [[ ${INPUT_BRANCH_TYPE} == 'feature' ]]; then
+            NEW_BRANCH_NAME="feature/${VERSION_NUMBER}/${INPUT_BRANCH_NAME}"
+          elif [[ ${INPUT_BRANCH_TYPE} == 'bugfix' ]]; then
+            NEW_BRANCH_NAME="bugfix/${VERSION_NUMBER}/${INPUT_BRANCH_NAME}"
+          fi
+
+          echo "NEW_BRANCH_NAME=$NEW_BRANCH_NAME" >> $GITHUB_ENV
+          echo "New branch name: ${NEW_BRANCH_NAME}"
+       
+        #Create the new branch and push it to remote.
+      - name: Create and push branch
+        run: |
+          git checkout -b ${NEW_BRANCH_NAME}
+          git push origin ${NEW_BRANCH_NAME}

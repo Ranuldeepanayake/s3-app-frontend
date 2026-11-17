@@ -1,0 +1,298 @@
+#After a PR from release to main is approved and closed, remove the rc tag from the version number in main. The approver needs to keep the version number from the 
+#release branch when resolving the merge conflict.
+#After a PR from hotfix to main is approved and closed, remove the rc tag from the version number in main. The approver needs to keep the version number from the
+#hotfix branch when resolving the merge conflict.
+#After a PR from hotfix to develop is approved and closed, just check for the version number in develop in case the wrong version got kept when resolving the merge
+#conflict. The approver needs to keep the version number from the develop branch.
+
+name: Pull request processor
+
+#Trigger the workflow on closed pull requests.
+on:
+  pull_request:
+    types: [closed]
+    branches:
+    - develop
+    - main
+
+#Global environment variables.
+env:
+  VERSION_FILE: package.json
+  COMMIT_USERNAME: github-actions
+  COMMIT_EMAIL: github-actions@github.com
+
+#Permissions.
+permissions:
+  contents: write
+
+jobs:
+  #Remove the rc tag from the main branch after being merged with a release branch.
+  remove-rc-tag-from-main-release:
+    if: >
+      github.event_name == 'pull_request' &&
+      startsWith(github.event.pull_request.head.ref, 'release/') &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.merged == true
+
+    runs-on: ubuntu-latest  #Runner label.
+    timeout-minutes: 30     #Timeout against runaway jobs.
+
+    steps:
+      #Log information about the trigger. 
+    - name: Show trigger information
+      run: |
+        echo "Pipeline was triggered by a PR"
+        echo "PR head (source) branch: ${{ github.event.pull_request.head.ref }}"
+        echo "PR base (destination) branch: ${{ github.event.pull_request.base.ref }}"
+        echo "PR merge status: ${{ github.event.pull_request.merged }}"
+
+        #Get the branch name. The below statement handles the change in variable used depending on push/pull.
+        BRANCH_NAME="${GITHUB_REF_NAME:-${GITHUB_HEAD_REF}}"
+        echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+        echo "Branch name: ${BRANCH_NAME}"
+
+        PULL_REQUEST_NUMBER=$(echo ${BRANCH_NAME} | awk -F '/' '{print $1}' | tr -d '\n')
+        echo "PULL_REQUEST_NUMBER=$PULL_REQUEST_NUMBER" >> $GITHUB_ENV
+        echo "Pull request number: ${PULL_REQUEST_NUMBER}"
+
+      #Checkout the base branch.
+    - name: Repository checkout
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ github.event.pull_request.base.ref }}
+        clean: true      #Cleans the workspace before checking out code.
+        fetch-depth: 0   #Required to push back
+
+      #Ensure jq is available. 
+    - name: Install jq 
+      run: sudo apt update && sudo apt install -y jq
+
+      #Check if the version number is in the correct format.
+    - name: Validate version number
+      run: |
+        echo "Version file: ${VERSION_FILE}"
+
+        #Read the version file.
+        VERSION_NUMBER=$(jq -r '.version' ${VERSION_FILE} | tr -d '\n')
+        
+        #Append the version number variable to the array of runtime variables.
+        echo "VERSION_NUMBER=$VERSION_NUMBER" >> $GITHUB_ENV
+        echo "Version number: ${VERSION_NUMBER}"
+        
+        #Allowed patterns.
+        PATTERN="([0-9]+\.[0-9]+\.[0]-rc\.[0-9]+){1,1}"
+
+        if [[ ! ${VERSION_NUMBER} =~ $PATTERN ]]; then
+          echo "❌ Version number ${VERSION_NUMBER} is inconsistent with the format. Exiting!"
+          echo "Allowed formats: x.x.0-rc.x"
+          exit 1
+        else
+          echo "✅ Version number ${VERSION_NUMBER} is consistent with the format"
+        fi
+
+     #Update the version file with the new value.
+    - name: Update version file
+      run: |
+        #Extract the version number without the rc tag.
+        VERSION_NUMBER_EXTRACTED=$(echo ${VERSION_NUMBER} | awk -F '-rc.' '{print $1}' | tr -d '\n')
+        echo "VERSION_NUMBER_EXTRACTED=$VERSION_NUMBER_EXTRACTED" >> $GITHUB_ENV
+        echo "Extracted version number: ${VERSION_NUMBER_EXTRACTED}"
+
+        jq ".version = \"${VERSION_NUMBER_EXTRACTED}\"" ${VERSION_FILE} > temp.json && mv temp.json ${VERSION_FILE}
+
+        VERSION_NUMBER_EXTRACTED_READ_BACK=$(jq -r '.version' ${VERSION_FILE} | tr -d '\n')
+        echo "Written extracted version: $VERSION_NUMBER_EXTRACTED_READ_BACK"
+
+        #Validate written changes.
+        if [[ ! $VERSION_NUMBER_EXTRACTED_READ_BACK =~ ${VERSION_NUMBER_EXTRACTED} ]]; then
+          echo "❌ Extracted version not written correctly to the version file. Exiting!"
+          exit 1
+        else
+          echo "✅ Extracted version written correctly to the version file"
+        fi
+
+      #Commit and push the changes to the main branch.
+    - name: Commit and push to main
+      run: |
+        git config user.name ${COMMIT_USERNAME} 
+        git config user.email ${COMMIT_EMAIL}
+
+        git add ${VERSION_FILE}
+        git commit -m "Pipeline (rc tag removal): removed the the rc tag from ${{ github.event.pull_request.base.ref }} after merged by ${{ github.event.pull_request.head.ref }}" \
+        || echo "No changes to commit"
+        
+        git push origin "${{ github.event.pull_request.base.ref }}"
+
+  #Remove the rc tag from the main branch after being merged with a hotfix branch.
+  remove-rc-tag-from-main-hotfix:
+    if: >
+      github.event_name == 'pull_request' &&
+      startsWith(github.event.pull_request.head.ref, 'hotfix/') &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.merged == true
+
+    runs-on: ubuntu-latest  #Runner label.
+    timeout-minutes: 30     #Timeout against runaway jobs.
+
+    steps:
+      #Log information about the trigger. 
+    - name: Show trigger information
+      run: |
+        echo "Pipeline was triggered by a PR"
+        echo "PR head (source) branch: ${{ github.event.pull_request.head.ref }}"
+        echo "PR base (destination) branch: ${{ github.event.pull_request.base.ref }}"
+        echo "PR merge status: ${{ github.event.pull_request.merged }}"
+
+        #Get the branch name. The below statement handles the change in variable used depending on push/pull.
+        BRANCH_NAME="${GITHUB_REF_NAME:-${GITHUB_HEAD_REF}}"
+        echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+        echo "Branch name: ${BRANCH_NAME}"
+
+        PULL_REQUEST_NUMBER=$(echo ${BRANCH_NAME} | awk -F '/' '{print $1}' | tr -d '\n')
+        echo "PULL_REQUEST_NUMBER=$PULL_REQUEST_NUMBER" >> $GITHUB_ENV
+        echo "Pull request number: ${PULL_REQUEST_NUMBER}"
+
+      #Checkout the base branch.
+    - name: Repository checkout
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ github.event.pull_request.base.ref }}
+        clean: true      #Cleans the workspace before checking out code.
+        fetch-depth: 0   #Required to push back
+
+      #Ensure jq is available. 
+    - name: Install jq 
+      run: sudo apt update && sudo apt install -y jq
+
+      #Check if the version number is in the correct format.
+    - name: Validate version number
+      run: |
+        echo "Version file: ${VERSION_FILE}"
+
+        #Read the version file.
+        VERSION_NUMBER=$(jq -r '.version' ${VERSION_FILE} | tr -d '\n')
+        
+        #Append the version number variable to the array of runtime variables.
+        echo "VERSION_NUMBER=$VERSION_NUMBER" >> $GITHUB_ENV
+        echo "Version number: ${VERSION_NUMBER}"
+        
+        #Allowed patterns.
+        PATTERN="([0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+){1,1}"
+
+        if [[ ! ${VERSION_NUMBER} =~ $PATTERN ]]; then
+          echo "❌ Version number ${VERSION_NUMBER} is inconsistent with the format. Exiting!"
+          echo "Allowed formats: x.x.x-rc.x"
+          exit 1
+        else
+          echo "✅ Version number ${VERSION_NUMBER} is consistent with the format"
+        fi
+
+      #Update the version file with the new value.
+    - name: Update version file
+      run: |
+        #Extract the version number without the rc tag.
+        VERSION_NUMBER_EXTRACTED=$(echo ${VERSION_NUMBER} | awk -F '-rc.' '{print $1}' | tr -d '\n')
+        echo "VERSION_NUMBER_EXTRACTED=$VERSION_NUMBER_EXTRACTED" >> $GITHUB_ENV
+        echo "Extracted version number: ${VERSION_NUMBER_EXTRACTED}"
+
+        jq ".version = \"${VERSION_NUMBER_EXTRACTED}\"" ${VERSION_FILE} > temp.json && mv temp.json ${VERSION_FILE}
+
+        VERSION_NUMBER_EXTRACTED_READ_BACK=$(jq -r '.version' ${VERSION_FILE} | tr -d '\n')
+        echo "Written extracted version: $VERSION_NUMBER_EXTRACTED_READ_BACK"
+
+        #Validate written changes.
+        if [[ ! $VERSION_NUMBER_EXTRACTED_READ_BACK =~ ${VERSION_NUMBER_EXTRACTED} ]]; then
+          echo "❌ Extracted version not written correctly to the version file. Exiting!"
+          exit 1
+        else
+          echo "✅ Extracted version written correctly to the version file"
+        fi
+
+      #Commit and push the changes to the main branch.
+    - name: Commit and push to main
+      run: |
+        git config user.name ${COMMIT_USERNAME} 
+        git config user.email ${COMMIT_EMAIL}
+
+        git add ${VERSION_FILE}
+        git commit -m "Pipeline (rc tag removal): removed the the rc tag from ${{ github.event.pull_request.base.ref }} after merged by ${{ github.event.pull_request.head.ref }}" \
+        || echo "No changes to commit"
+        
+        git push origin "${{ github.event.pull_request.base.ref }}"
+
+  #Check if the version number in the develop branch is correct after being merged with a hotfix branch.
+  check-version-number-in-develop-hotfix:
+    if: >
+      github.event_name == 'pull_request' &&
+      startsWith(github.event.pull_request.head.ref, 'hotfix/') &&
+      github.event.pull_request.base.ref == 'develop' &&
+      github.event.pull_request.merged == true
+
+    runs-on: ubuntu-latest  #Runner label.
+    timeout-minutes: 30     #Timeout against runaway jobs.
+
+    steps:
+      #Log information about the trigger. 
+    - name: Show trigger information
+      run: |
+        echo "Pipeline was triggered by a PR"
+        echo "PR head (source) branch: ${{ github.event.pull_request.head.ref }}"
+        echo "PR base (destination) branch: ${{ github.event.pull_request.base.ref }}"
+        echo "PR merge status: ${{ github.event.pull_request.merged }}"
+
+        #Get the branch name. The below statement handles the change in variable used depending on push/pull.
+        BRANCH_NAME="${GITHUB_REF_NAME:-${GITHUB_HEAD_REF}}"
+        echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+        echo "Branch name: ${BRANCH_NAME}"
+
+        PULL_REQUEST_NUMBER=$(echo ${BRANCH_NAME} | awk -F '/' '{print $1}' | tr -d '\n')
+        echo "PULL_REQUEST_NUMBER=$PULL_REQUEST_NUMBER" >> $GITHUB_ENV
+        echo "Pull request number: ${PULL_REQUEST_NUMBER}"
+
+      #Checkout the base branch.
+    - name: Repository checkout
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ github.event.pull_request.base.ref }}
+        clean: true      #Cleans the workspace before checking out code.
+        fetch-depth: 0   #Required to push back
+
+      #Ensure jq is available. 
+    - name: Install jq 
+      run: sudo apt update && sudo apt install -y jq
+
+      #Check if the version number is in the correct format.
+    - name: Validate version number
+      run: |
+        echo "Version file: ${VERSION_FILE}"
+
+        #Read the version file.
+        VERSION_NUMBER=$(jq -r '.version' ${VERSION_FILE} | tr -d '\n')
+        
+        #Append the version number variable to the array of runtime variables.
+        echo "VERSION_NUMBER=$VERSION_NUMBER" >> $GITHUB_ENV
+        echo "Version number: ${VERSION_NUMBER}"
+        
+        #Allowed patterns.
+        PATTERN="([0-9]+\.[0-9]+\.[0]){1,1}"
+
+        if [[ ! ${VERSION_NUMBER} =~ $PATTERN ]]; then
+          echo "❌ Version number ${VERSION_NUMBER} is inconsistent with the format. Exiting!"
+          echo "Allowed formats: x.x.0"
+          exit 1
+        else
+          echo "✅ Version number ${VERSION_NUMBER} is consistent with the format"
+        fi
+
+# jobs:
+#   pr-status:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: PR merged
+#         if: github.event.pull_request.merged
+#         run: echo "PR was merged"
+
+#       - name: PR closed without merge
+#         if: ${{ !github.event.pull_request.merged }}
+#         run: echo "PR was closed without merging"

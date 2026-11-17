@@ -1,0 +1,82 @@
+#Create a new feature branch from the develop branch.
+
+name: Change pull request
+
+on:
+  #Enable the workflow to be manually triggered. The workflow must be pushed to the default branch at least once.
+  workflow_dispatch:
+    inputs:
+      INPUT_PR_NUMBER:
+        description: 'Enter pull request number'
+        required: true
+
+#Global environment variables.
+env:
+  PR_NUMBER: ${{ github.event.inputs.INPUT_PR_NUMBER }}
+  PR_REVIEWERS: ${{ vars.PR_REVIEWERS }}
+  PR_ASSIGNEES: ${{ vars.PR_ASSIGNEES }}
+  PR_LABELS: ${{ vars.PR_LABELS }}
+
+#Permissions.
+permissions:
+  contents: write
+  pull-requests: write
+
+#A job has a sequential list of steps. Several jobs can be run in parallel or chained.
+jobs:
+  change-pull-request:
+
+    runs-on: ubuntu-latest  #Runner label.
+    timeout-minutes: 30     #Timeout against runaway jobs.
+
+    steps:
+    - name: Debug dump
+      run: |
+        echo "Reviewers payload:"
+        echo "{
+          \"reviewers\": ${PR_REVIEWERS}
+        }"
+
+        echo "Assignees payload:"
+        echo "{
+          \"assignees\": ${PR_ASSIGNEES}
+        }"
+
+        echo "Labels payload:"
+        echo "{
+          \"labels\": ${PR_LABELS}
+        }"
+
+    - name: Pull request modifier
+      env:
+        GH_TOKEN: ${{ github.token }} #Created automatically when the pipeline runs.
+      run: |
+        #Add reviewers to the PR.
+        curl -s -L \
+          -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER/requested_reviewers \
+          -d "{
+            \"reviewers\": ${PR_REVIEWERS}
+          }"
+
+        #Add assignees to the PR.
+        curl -s -L \
+          -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/assignees \
+          -d "{
+            \"assignees\": ${PR_ASSIGNEES}
+          }"
+
+        #Add labels to the PR.
+        curl -s -L \
+          -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/labels \
+          -d "{
+            \"labels\": ${PR_LABELS}
+          }"
