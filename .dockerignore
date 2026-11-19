@@ -1,5 +1,13 @@
-node_modules
-npm-debug.log
-dist
-.git
-.gitignore
+# Keep local secrets and generated data out of Docker build context.
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+.git/
+.github/
+.npm/
+.vite/
+coverage/
+*.log
+npm-debug.log*

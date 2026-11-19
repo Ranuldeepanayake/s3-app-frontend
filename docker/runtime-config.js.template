@@ -1,0 +1,5 @@
+window.__APP_CONFIG__ = {
+  uiPort: ${VITE_UI_PORT},
+  apiTarget: "${VITE_API_TARGET}",
+  maxImageSizeBytes: ${VITE_MAX_IMAGE_SIZE_BYTES}
+};
